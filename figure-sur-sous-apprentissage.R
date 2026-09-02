@@ -1,36 +1,38 @@
 library(animint2)
 library(data.table)
-pattern.f.seed <- function(pattern, fun, seed){
-  data.table(pattern=pattern, fun=list(fun), seed=seed)
-}
 max.x <- 5
 min.x <- -max.x
-pattern.dt <- rbind(
-  pattern.f.seed("constant", function(x)1, 4),
-  pattern.f.seed("cubic", function(x)x^3/(max.x^3), 7),#1?
-  pattern.f.seed("quadratic", function(x)x^2/(max.x^2), 11),#6?
-  pattern.f.seed("linear", function(x)x/max.x, 3))
+lfun <- function(expr)eval(substitute(list(function(x)expr)))
+tendence.dt <- rowwiseDT(
+  tendence=, fonction=, graine=,
+  "constante", lfun(1), 6,
+  "cubique", lfun(x^3/(max.x^3)), 9,#1?
+  "quadratique", lfun(x^2/(max.x^2)), 11,#6?
+  "linéaire", lfun(x/max.x), 14)
 grid.x.vec <- seq(min.x, max.x, l=401)
 set.seed(7)#4?
 N.train <- 10
 max.degree <- N.train-1
 N.total <- 100
 x <- runif(N.total, min.x, max.x)
-set <- rep("validation", N.total)
-set[1:N.train] <- "subtrain"
+ensemble <- rep("validation", N.total)
+subtrain <- "sous-entraînement"
+ensemble[1:N.train] <- subtrain
 model.dt.list <- list()
-for(pattern.i in 1:nrow(pattern.dt)){
-  pattern.row <- pattern.dt[pattern.i]
-  set.seed(pattern.row$seed)
-  f <- pattern.row$fun[[1]]
+lm.name <- "degré de base polynome, modèle linéaire"
+nn.name <- "nombre de plus proches voisins"
+for(tendence.i in 1:nrow(tendence.dt)){
+  tendence.row <- tendence.dt[tendence.i]
+  set.seed(tendence.row$graine)
+  f <- tendence.row$fonction[[1]]
   y <- f(x) + rnorm(N.total, sd=0.1)
   all.sets <- rbind(
-    data.table(set, x, y),
-    data.table(set="grid", x=grid.x.vec, y=NA_real_))
-  yrange <- all.sets[set!="grid", range(y)]
+    data.table(ensemble, x, y),
+    data.table(ensemble="grid", x=grid.x.vec, y=NA_real_))
+  yrange <- all.sets[ensemble!="grid", range(y)]
   all.sets[, ynorm := (y-yrange[1])/diff(yrange)]
   degree.vec <- 0:max.degree
-  train.set <- all.sets[set=="subtrain"]
+  train.set <- all.sets[ensemble==subtrain]
   for(degree in degree.vec){
     pred.y <- if(degree==0){
       train.set[, mean(ynorm)]
@@ -42,146 +44,150 @@ for(pattern.i in 1:nrow(pattern.dt)){
       model.fit <- lm(model.formula, train.set)
       predict(model.fit, all.sets)
     }
-    model.dt.list[[paste(pattern.i, degree, "lm")]] <- data.table(
-      pattern.row, 
+    model.dt.list[[paste(tendence.i, degree, "lm")]] <- data.table(
+      tendence.row,
       all.sets,
       pred.y,
-      parameter=degree,
-      regularization="linear model polynomial degree")
+      paramètre=degree,
+      regularisation=lm.name)
   }
-  for(num.neighbors in 1:N.train){
+  for(nombre.voisins in 1:N.train){
     ## kfit <- kknn::kknn(
     ##   ynorm~x,
     ##   train.set,
     ##   all.sets[, .(x)],
-    ##   k=num.neighbors,
+    ##   k=nombre.voisins,
     ##   scale=FALSE,
     ##   kernel="rectangular")
     kfit <- FNN::knn.reg(
       train.set[, .(x)],
       all.sets[, .(x)],
       train.set$ynorm,
-      num.neighbors)
-    model.dt.list[[paste(pattern.i, num.neighbors, "nn")]] <- data.table(
-      pattern.row, 
+      nombre.voisins)
+    model.dt.list[[paste(tendence.i, nombre.voisins, "nn")]] <- data.table(
+      tendence.row,
       all.sets,
       pred.y=kfit[["pred"]],
-      parameter=num.neighbors,
-      regularization="number of nearest neighbors")
+      paramètre=nombre.voisins,
+      regularisation=nn.name)
   }
 }
 model.dt <- do.call(rbind, model.dt.list)
 
 error.dt <- model.dt[
-  set!="grid", .(
+  ensemble != "grid", .(
     mse=mean((ynorm - pred.y)^2)
-  ), by=.(pattern, regularization, parameter, set)
+  ), by=.(tendence, regularisation, paramètre, ensemble)
 ][
 , mse.thresh := ifelse(mse<1e-10, 0, mse)
 ]
-best.err <- error.dt[set=="validation"][, .SD[mse==min(mse)], by=.(pattern, regularization)]
-set.colors <- c(
-  subtrain="black",
-  validation="red")
-model.colors <- c(
-  "linear model polynomial degree"="blue",
-  "number of nearest neighbors"="green")
-model.sizes <- c(
-  "linear model polynomial degree"=3,
-  "number of nearest neighbors"=2)
+best.err <- error.dt[ensemble=="validation"][, .SD[mse==min(mse)], by=.(tendence, regularisation)]
+(set.colors <- rowwiseDT(
+  ensemble=, color=,
+  subtrain, "black",
+  "validation", "red"
+)[, setNames(color, ensemble)])
+model.info <- rowwiseDT(
+  regularisation=, color=, size=,
+  lm.name, "blue", 3,
+  nn.name, "green", 2)
+(model.colors <- model.info[, setNames(color, regularisation)])
+(model.sizes <- model.info[, setNames(size, regularisation)])
 expand <- 0.1
-not.grid <- model.dt[set!="grid"]
+not.grid <- model.dt[ensemble!="grid"]
 model.dt[, pred.thresh := ifelse(
   pred.y < min(not.grid$ynorm)-expand, -Inf,
   ifelse(pred.y > max(not.grid$ynorm)+expand, Inf, pred.y))]
-tallrect.dt <- unique(error.dt[, .(regularization, parameter)])
-test.err <- error.dt[set=="validation"]
-(text.dt <- rbind(
-  test.err[regularization=="linear model polynomial degree"][parameter==max(parameter)][, hjust := 0],
-  test.err[regularization=="number of nearest neighbors"][parameter==min(parameter)][, hjust := 1]))
-duration.list <- list(pattern=1000)
-for(regularization in names(model.colors)){
-  duration.list[[regularization]] <- 1000
+tallrect.dt <- unique(error.dt[, .(regularisation, paramètre)])
+test.err <- error.dt[ensemble=="validation"]
+text.dt <- rowwiseDT(
+  regularisation=, paramètre=, hjust=,
+  lm.name, max.degree, 0,
+  nn.name, 1, 1
+)[test.err, on=.(regularisation, paramètre), nomatch=0L]
+duration.list <- list(tendence=1000)
+for(regularisation in names(model.colors)){
+  duration.list[[regularisation]] <- 1000
 }
-height.pixels <- 500
+height.pixels <- 700
 (viz <- animint(
   error=ggplot()+
-    ggtitle("Select pattern and models")+
+    ggtitle("Choisir tendence et paramètres")+
     theme(legend.position="none")+
-    theme_animint(height=height.pixels)+
-    scale_y_continuous("log10(mean squared error)")+
+    theme_animint(height=height.pixels, width=500)+
+    scale_y_continuous("log10(erreur carrée moyenne)")+
     scale_x_continuous(
-      "regularization parameter",
-      limits=range(tallrect.dt$parameter)+c(-1,1),
-      breaks=unique(tallrect.dt$parameter))+
+      "hyper-paramètre de regularisation",
+      limits=range(tallrect.dt$paramètre)+c(-1,1),
+      breaks=unique(tallrect.dt$paramètre))+
     scale_color_manual(values=set.colors)+
     scale_fill_manual(values=model.colors)+
-    facet_grid(regularization ~ ., scales="free")+
+    facet_grid(regularisation ~ ., scales="free")+
     geom_tallrect(aes(
-      xmin=parameter-0.5,
-      xmax=parameter+0.5,
-      fill=regularization),
+      xmin=paramètre-0.5,
+      xmax=paramètre+0.5,
+      fill=regularisation),
       alpha=0.5,
       color=NA,
       data=tallrect.dt,
-      clickSelects=c(regularization="parameter"))+
+      showSelected="regularisation",
+      clickSelects=c(regularisation="paramètre"))+
     geom_line(aes(
-      parameter, log10(mse.thresh), color=set, group=paste(pattern, set)),
-      clickSelects="pattern",
-      showSelected="set",
+      paramètre, log10(mse.thresh), color=ensemble, group=paste(tendence, ensemble)),
+      clickSelects="tendence",
+      showSelected=c("regularisation", "ensemble"),
       size=5,
       alpha_off=0.1,
       data=error.dt)+
     geom_point(aes(
-      parameter, log10(mse.thresh), color=set),
+      paramètre, log10(mse.thresh), color=ensemble),
       shape=1,
       fill="white",
       alpha_off=0.1,
       size=4,
-      clickSelects="pattern",
-      showSelected="set",
+      clickSelects="tendence",
+      showSelected=c("regularisation", "ensemble"),
       data=best.err)+
     geom_text(aes(
-      parameter, log10(mse.thresh),
+      (0.5-hjust)*0.5+paramètre, log10(mse.thresh),
       hjust=hjust,
-      label=pattern,
-      color=set),
-      clickSelects="pattern",
-      showSelected="set",
+      label=tendence,
+      color=ensemble),
+      clickSelects="tendence",
+      showSelected=c("regularisation", "ensemble"),
       data=text.dt),
-  funs=ggplot()+
-    ggtitle("Selected pattern (points) and models (curves)")+
-    xlab("input/feature")+
-    ylab("output/label")+
-    theme_animint(height=height.pixels)+
+  fonctions=ggplot()+
+    ggtitle("Tendence (points) et modèles (courbes) pour la sélection")+
+    xlab("entrée x")+
+    ylab("sortie y")+
+    theme_animint(height=height.pixels, width=600, last_in_row=TRUE)+
     scale_fill_manual(values=set.colors)+
     scale_color_manual(values=model.colors)+
     scale_size_manual(values=model.sizes)+
     geom_point(aes(
-      x, ynorm, fill=set, key=x),
+      x, ynorm, fill=ensemble, key=x),
       size=4,
-      showSelected=c("set","pattern"),
+      showSelected=c("ensemble","tendence"),
       data=not.grid)+
     geom_line(aes(
       x, pred.thresh,
-      size=regularization,
-      key=regularization,
-      group=regularization,
-      color=regularization),
-      data=model.dt[set=="grid"],
-      showSelected=c("pattern", regularization="parameter")),
+      size=regularisation,
+      key=regularisation,
+      group=regularisation,
+      color=regularisation),
+      data=model.dt[ensemble=="grid"],
+      showSelected=c("tendence", regularisation="paramètre")),
   duration=duration.list,
   out.dir="figure-sur-sous-apprentissage",
-  title="Overfitting using linear model polynomial degree and nearest neighbors",
-  first=list(
-    "number of nearest neighbors"=10),
-  source="https://github.com/tdhock/2024-08-ift603-712/blob/master/figure-sur-sous-apprentissage.R"))
+  title="Surapprentissage et sous-apprentissage avec modèle linéaire et plus proches voisins",
+  first=setNames(list(10), nn.name),
+  source="https://github.com/tdhock/2026-08-apprentissage/blob/master/figure-sur-sous-apprentissage.R"))
 if(FALSE){
-  animint2pages(viz, "2024-10-15-degree-neighbors")
+  animint2pages(viz, "2026-09-02-sur-sous-apprentissage")
 }
 
 quad.err <- error.dt[
-  pattern=="quadratic"
+  tendence=="quadratic"
 ][
 , Set := ifelse(
   set=="subtrain",
@@ -189,11 +195,11 @@ quad.err <- error.dt[
   "validation")
 ][
 , modèle := ifelse(
-  regularization=="linear model polynomial degree",
+  regularisation=="linear model polynomial degree",
   "linéaire", "plus proches voisins")
 ][
 , "hyper-paramètre" := ifelse(
-  regularization=="linear model polynomial degree",
+  regularisation=="linear model polynomial degree",
   "ordre de polynome", "nombre de voisins")
 ][]
 Set.colors <- structure(
@@ -205,7 +211,7 @@ Set.linetypes <- structure(
 ggplot()+
   theme_bw()+
   geom_line(aes(
-    parameter, mse, linetype=Set),
+    paramètre, mse, linetype=Set),
     size=1,
     data=quad.err)+
   scale_color_manual(
@@ -214,7 +220,7 @@ ggplot()+
   scale_linetype_manual(
     "ensemble",
     values=Set.linetypes)+
-  ##facet_wrap(~ regularization, scales="free")+
+  ##facet_wrap(~ regularisation, scales="free")+
   facet_grid(~ modèle + `hyper-paramètre`, labeller=label_both, scales="free")+
   scale_y_log10("Erreur L2")+
   scale_x_continuous(
