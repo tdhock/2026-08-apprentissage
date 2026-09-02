@@ -10,14 +10,13 @@ tendence.dt <- rowwiseDT(
   "quadratique", lfun(x^2/(max.x^2)), 11,#6?
   "linéaire", lfun(x/max.x), 14)
 grid.x.vec <- seq(min.x, max.x, l=401)
-set.seed(7)#4?
-N.train <- 10
-max.degree <- N.train-1
+set.seed(1)#4?
 N.total <- 100
 x <- runif(N.total, min.x, max.x)
-ensemble <- rep("validation", N.total)
+n.folds <- 5
+fold.uniq <- 1:n.folds
+fold.vec <- rep(fold.uniq, length.out = N.total)
 subtrain <- "sous-entraînement"
-ensemble[1:N.train] <- subtrain
 model.dt.list <- list()
 lm.name <- "degré de base polynome, modèle linéaire"
 nn.name <- "nombre de plus proches voisins"
@@ -26,61 +25,94 @@ for(tendence.i in 1:nrow(tendence.dt)){
   set.seed(tendence.row$graine)
   f <- tendence.row$fonction[[1]]
   y <- f(x) + rnorm(N.total, sd=0.1)
-  all.sets <- rbind(
-    data.table(ensemble, x, y),
-    data.table(ensemble="grid", x=grid.x.vec, y=NA_real_))
-  yrange <- all.sets[ensemble!="grid", range(y)]
-  all.sets[, ynorm := (y-yrange[1])/diff(yrange)]
-  degree.vec <- 0:max.degree
-  train.set <- all.sets[ensemble==subtrain]
-  for(degree in degree.vec){
-    pred.y <- if(degree==0){
-      train.set[, mean(ynorm)]
-    }else{
-      right.side.vec <- paste0("I(x^", 1:degree, ")")
-      right.side.str <- paste(right.side.vec, collapse="+")
-      model.str <- paste("ynorm ~", right.side.str)
-      model.formula <- as.formula(model.str)
-      model.fit <- lm(model.formula, train.set)
-      predict(model.fit, all.sets)
+  for(test.fold in fold.uniq){
+    ensemble <- ifelse(test.fold==fold.vec, "test", "entraînement")
+    ensemble[ensemble=="entraînement"] <- c(subtrain, "validation")
+    #ensemble[!(x %between% (c(-1,1)*test.max))] <- "test" #extrapolation
+    #ensemble[x %between% (c(-1,1)*2)] <- "test" #interpolation
+    plot(y ~ x, col=c(test=1, validation=2, "sous-entraînement"=3)[ensemble])
+    all.sets <- rbind(
+      data.table(ensemble, x, y),
+      data.table(ensemble="grid", x=grid.x.vec, y=NA_real_))
+    yrange <- all.sets[ensemble!="grid", range(y)]
+    all.sets[, ynorm := (y-yrange[1])/diff(yrange)]
+    subtrain.set <- all.sets[ensemble==subtrain]
+    N.subtrain <- nrow(subtrain.set)
+    max.degree <- N.subtrain-1
+    degree.vec <- 0:5
+    for(degree in degree.vec){
+      pred.y <- if(degree==0){
+        subtrain.set[, mean(ynorm)]
+      }else{
+        right.side.vec <- paste0("I(x^", 1:degree, ")")
+        right.side.str <- paste(right.side.vec, collapse="+")
+        model.str <- paste("ynorm ~", right.side.str)
+        model.formula <- as.formula(model.str)
+        model.fit <- lm(model.formula, subtrain.set)
+        predict(model.fit, all.sets)
+      }
+      model.dt.list[[paste(
+        tendence.i, test.fold, degree, "lm"
+      )]] <- data.table(
+        tendence.row,
+        test.fold,
+        all.sets,
+        pred.y,
+        paramètre=degree,
+        regularisation=lm.name
+      )
     }
-    model.dt.list[[paste(tendence.i, degree, "lm")]] <- data.table(
-      tendence.row,
-      all.sets,
-      pred.y,
-      paramètre=degree,
-      regularisation=lm.name)
-  }
-  for(nombre.voisins in 1:N.train){
-    ## kfit <- kknn::kknn(
-    ##   ynorm~x,
-    ##   train.set,
-    ##   all.sets[, .(x)],
-    ##   k=nombre.voisins,
-    ##   scale=FALSE,
-    ##   kernel="rectangular")
-    kfit <- FNN::knn.reg(
-      train.set[, .(x)],
-      all.sets[, .(x)],
-      train.set$ynorm,
-      nombre.voisins)
-    model.dt.list[[paste(tendence.i, nombre.voisins, "nn")]] <- data.table(
-      tendence.row,
-      all.sets,
-      pred.y=kfit[["pred"]],
-      paramètre=nombre.voisins,
-      regularisation=nn.name)
+    for(nombre.voisins in 1:N.subtrain){
+      kfit <- FNN::knn.reg(
+        subtrain.set[, .(x)],
+        all.sets[, .(x)],
+        subtrain.set$ynorm,
+        nombre.voisins)
+      model.dt.list[[paste(
+        tendence.i, test.fold, nombre.voisins, "nn"
+      )]] <- data.table(
+        tendence.row,
+        test.fold,
+        all.sets,
+        pred.y=kfit[["pred"]],
+        paramètre=nombre.voisins,
+        regularisation=nn.name
+      )
+    }
   }
 }
 model.dt <- do.call(rbind, model.dt.list)
 
-error.dt <- model.dt[
+(error.dt <- model.dt[
   ensemble != "grid", .(
     mse=mean((ynorm - pred.y)^2)
-  ), by=.(tendence, regularisation, paramètre, ensemble)
+  ), by=.(tendence, regularisation, test.fold, paramètre, ensemble)
 ][
 , mse.thresh := ifelse(mse<1e-10, 0, mse)
-]
+][])
+(min.valid.err <- error.dt[ensemble=="validation"][
+, .SD[which.min(mse)]
+, by=.(tendence, regularisation, test.fold)])
+pfac <- function(x)factor(x, c("min erreur validation", sprintf("fixe(%s)", unique(error.dt$paramètre))))
+test.err <- error.dt[ensemble=="test"][
+, Paramètre := pfac(sprintf("fixe(%d)", paramètre))
+][]
+all.test.err <- rbind(test.err[
+  min.valid.err[, .(tendence, regularisation, test.fold, paramètre)],
+  on=.NATURAL
+][
+, Paramètre := pfac("min erreur validation")
+], test.err)
+
+ggplot()+
+  scale_x_log10()+
+  geom_point(aes(
+    mse, Paramètre),
+    data=all.test.err)+
+  facet_grid(regularisation ~ tendence, scales="free", space="free")
+
+##TODO
+  
 best.err <- error.dt[ensemble=="validation"][, .SD[mse==min(mse)], by=.(tendence, regularisation)]
 (set.colors <- rowwiseDT(
   ensemble=, color=,
@@ -178,52 +210,10 @@ height.pixels <- 700
       data=model.dt[ensemble=="grid"],
       showSelected=c("tendence", regularisation="paramètre")),
   duration=duration.list,
-  out.dir="figure-sur-sous-apprentissage",
+  out.dir="figure-sur-sous-apprentissage-test",
   title="Surapprentissage et sous-apprentissage avec modèle linéaire et plus proches voisins",
   first=setNames(list(10), nn.name),
-  source="https://github.com/tdhock/2026-08-apprentissage/blob/master/figure-sur-sous-apprentissage.R"))
+  source="https://github.com/tdhock/2026-08-apprentissage/blob/master/figure-sur-sous-apprentissage-test.R"))
 if(FALSE){
-  animint2pages(viz, "2026-09-02-sur-sous-apprentissage", chromote_sleep_seconds=3)
+  animint2pages(viz, "2026-09-02-sur-sous-apprentissage-test", chromote_sleep_seconds=3)
 }
-
-quad.err <- error.dt[
-  tendence=="quadratic"
-][
-, Set := ifelse(
-  set=="subtrain",
-  "sous-entraînement (subtrain)",
-  "validation")
-][
-, modèle := ifelse(
-  regularisation=="linear model polynomial degree",
-  "linéaire", "plus proches voisins")
-][
-, "hyper-paramètre" := ifelse(
-  regularisation=="linear model polynomial degree",
-  "ordre de polynome", "nombre de voisins")
-][]
-Set.colors <- structure(
-  c("black","red"),
-  names=unique(quad.err$Set))
-Set.linetypes <- structure(
-  c("dotted","solid"),
-  names=unique(quad.err$Set))
-ggplot()+
-  theme_bw()+
-  geom_line(aes(
-    paramètre, mse, linetype=Set),
-    size=1,
-    data=quad.err)+
-  scale_color_manual(
-    "ensemble",
-    values=Set.colors)+
-  scale_linetype_manual(
-    "ensemble",
-    values=Set.linetypes)+
-  ##facet_wrap(~ regularisation, scales="free")+
-  facet_grid(~ modèle + `hyper-paramètre`, labeller=label_both, scales="free")+
-  scale_y_log10("Erreur L2")+
-  scale_x_continuous(
-    "valeur de hyper-paramètre",
-    breaks=seq(0,10))+
-  coord_cartesian(ylim=c(1e0,1e-4))
