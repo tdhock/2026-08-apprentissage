@@ -40,28 +40,28 @@ for(tendence.i in 1:nrow(tendence.dt)){
     N.subtrain <- nrow(subtrain.set)
     max.degree <- N.subtrain-1
     degree.vec <- 0:5
-    for(degree in degree.vec){
-      pred.y <- if(degree==0){
-        subtrain.set[, mean(ynorm)]
-      }else{
-        right.side.vec <- paste0("I(x^", 1:degree, ")")
-        right.side.str <- paste(right.side.vec, collapse="+")
-        model.str <- paste("ynorm ~", right.side.str)
-        model.formula <- as.formula(model.str)
-        model.fit <- lm(model.formula, subtrain.set)
-        predict(model.fit, all.sets)
-      }
-      model.dt.list[[paste(
-        tendence.i, test.fold, degree, "lm"
-      )]] <- data.table(
-        tendence.row,
-        test.fold,
-        all.sets,
-        pred.y,
-        paramètre=degree,
-        regularisation=lm.name
-      )
-    }
+    ## for(degree in degree.vec){
+    ##   pred.y <- if(degree==0){
+    ##     subtrain.set[, mean(ynorm)]
+    ##   }else{
+    ##     right.side.vec <- paste0("I(x^", 1:degree, ")")
+    ##     right.side.str <- paste(right.side.vec, collapse="+")
+    ##     model.str <- paste("ynorm ~", right.side.str)
+    ##     model.formula <- as.formula(model.str)
+    ##     model.fit <- lm(model.formula, subtrain.set)
+    ##     predict(model.fit, all.sets)
+    ##   }
+    ##   model.dt.list[[paste(
+    ##     tendence.i, test.fold, degree, "lm"
+    ##   )]] <- data.table(
+    ##     tendence.row,
+    ##     test.fold,
+    ##     all.sets,
+    ##     pred.y,
+    ##     paramètre=degree,
+    ##     regularisation=lm.name
+    ##   )
+    ## }
     for(nombre.voisins in 1:N.subtrain){
       kfit <- FNN::knn.reg(
         subtrain.set[, .(x)],
@@ -148,7 +148,7 @@ ggplot()+
   facet_grid(modèle ~ tendence, scales="free", space="free")
 
 show.err.wide <- dcast(
-  show.err,
+  show.err[Paramètre=="meilleur sur validation", paramètre := NA],
   modèle + tendence + Paramètre + paramètre + regularisation ~ .,
   list(mean, sd, length),
   value.var="RMSE")
@@ -165,52 +165,65 @@ show.err.p <- show.err.compare[, {
     p=L$p.value)
 }, by=.(tendence, modèle, paramètre, regularisation, param, compare_param)]
 
+text.color <- "black"
+text.size <- 12
+data.color <- "red"
 viz <- animint(
+  title="Test error p-values for simulated regression",
+  out.dir="figure-sur-sous-apprentissage-test-neighbors",
   test=ggplot()+
-    theme_animint(width=1000)+
-    geom_text(aes(
-    (RMSE+compare_RMSE)/2, Paramètre,
-    label=sprintf("Diff=%.4f p=%.4f", RMSE-compare_RMSE, p)),
-    showSelected=c(regularisation="paramètre"),
-    data=show.err.p)+
+    theme_animint(width=1000, height=300)+
     geom_segment(aes(
       RMSE, Paramètre,
       xend=compare_RMSE, yend=Paramètre),
-      showSelected=c(regularisation="paramètre"),
+      size=1,
+      showSelected="paramètre",
+      color=data.color,
       data=show.err.p)+
     geom_segment(aes(
       RMSE_mean+RMSE_sd, Paramètre,
       xend=RMSE_mean-RMSE_sd, yend=Paramètre),
-      showSelected=c(regularisation="paramètre"),
-      data=show.err.wide[Paramètre=="sélection"])+
-    geom_text(aes(
-      RMSE_mean, Paramètre,
-      label=sprintf("%.4f±%.4f", RMSE_mean, RMSE_sd)),
-      showSelected=c(regularisation="paramètre"),
+      showSelected="paramètre",
+      color=data.color,
       data=show.err.wide[Paramètre=="sélection"])+
     geom_point(aes(
       RMSE_mean, Paramètre),
-      showSelected=c(regularisation="paramètre"),
+      showSelected="paramètre",
+      color=data.color,
       data=show.err.wide[Paramètre=="sélection"])+
     geom_segment(aes(
       RMSE_mean+RMSE_sd, Paramètre,
       xend=RMSE_mean-RMSE_sd, yend=Paramètre),
+      color=data.color,
+      data=show.err.wide[Paramètre!="sélection"])+
+    geom_point(aes(
+      RMSE_mean, Paramètre),
+      color=data.color,
       data=show.err.wide[Paramètre!="sélection"])+
     geom_text(aes(
       RMSE_mean, Paramètre,
       label=sprintf("%.4f±%.4f", RMSE_mean, RMSE_sd)),
+      color=text.color,
+      size=text.size,
       data=show.err.wide[Paramètre!="sélection"])+
-    geom_point(aes(
-      RMSE_mean, Paramètre),
-      data=show.err.wide[Paramètre!="sélection"])+
+    geom_text(aes(
+      RMSE_mean, Paramètre,
+      label=sprintf("%.4f±%.4f", RMSE_mean, RMSE_sd)),
+      showSelected="paramètre",
+      color=text.color,
+      size=text.size,
+      data=show.err.wide[Paramètre=="sélection"])+
+    geom_text(aes(
+    (RMSE+compare_RMSE)/2, Paramètre,
+    label=sprintf("Diff=%.4f p=%.4f", RMSE-compare_RMSE, p)),
+    showSelected="paramètre",
+    color=text.color,
+    size=text.size,
+    data=show.err.p)+
     scale_y_discrete(drop=FALSE)+
     scale_x_continuous(breaks=seq(0, 1, by=0.1))+
-    facet_grid(modèle ~ tendence, scales="free", space="free"),
-  selectize=list()
+    facet_grid(. ~ tendence, scales="free", space="free")
 )
-for(reg in unique(show.err.p$regularisation)){
-  viz$selectize[[reg]] <- TRUE
-}
 viz
 ##TODO
   
