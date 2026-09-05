@@ -323,9 +323,9 @@ viz <- animint(
   out.dir="figure-sur-sous-apprentissage-test-neighbors",
   source="https://github.com/tdhock/2026-08-apprentissage/blob/master/figure-sur-sous-apprentissage-test-neighbors.R"
 )
-#viz
-animint2dir(viz, viz$out.dir, open.browser = FALSE)
 
 if(FALSE){
+  animint2dir(viz, viz$out.dir, open.browser = FALSE)
+  viz
   animint2pages(viz, "2026-09-04-sur-sous-apprentissage-test-neighbors", chromote_sleep_seconds=3)
 }
