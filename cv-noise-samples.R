@@ -13,35 +13,37 @@ x.vec <- runif(N, -abs.x, abs.x)
 str(x.vec)
 reg.pattern.list <- list(
   sin=sin,
-  constant=function(x)0)
+  constante=function(x)0)
 standard.deviation.vec <- c(
-  easy=0.4,
-  hard=1.1,
+  facile=0.4,
+  dificile=1.1,
   impossible=5)
+dfac <- function(x)factor(x, names(standard.deviation.vec))
 reg.task.list <- list()
 reg.data.list <- list()
-grid.signal.dt.list <- list()
-for(signal in names(reg.pattern.list)){
-  f <- reg.pattern.list[[signal]]
-  for(difficulty in names(standard.deviation.vec)){
-    standard.deviation <- standard.deviation.vec[[difficulty]]
-    task_id <- paste(signal, difficulty)
-    signal.vec <- f(x.vec)
-    y <- signal.vec+rnorm(N,sd=standard.deviation)
+grid.tendence.dt.list <- list()
+for(tendence in names(reg.pattern.list)){
+  f <- reg.pattern.list[[tendence]]
+  for(difficulté.chr in names(standard.deviation.vec)){
+    standard.deviation <- standard.deviation.vec[[difficulté.chr]]
+    difficulté <- dfac(difficulté.chr)
+    task_id <- paste(tendence, difficulté)
+    tendence.vec <- f(x.vec)
+    y <- tendence.vec+rnorm(N,sd=standard.deviation)
     task.dt <- data.table(
       x=norm01(x.vec,grid.dt$raw),
       y = norm01(y))
-    reg.data.list[[paste(difficulty, task_id)]] <- data.table(
-      difficulty,
-      signal,
+    reg.data.list[[paste(difficulté, task_id)]] <- data.table(
+      difficulté,
+      tendence,
       task_id,
       task.dt)
-    reg.task.list[[paste(difficulty, task_id)]] <- mlr3::TaskRegr$new(
+    reg.task.list[[paste(difficulté, task_id)]] <- mlr3::TaskRegr$new(
       task_id, task.dt, target="y"
     )
-    grid.signal.dt.list[[paste(difficulty, task_id)]] <- data.table(
-      difficulty,
-      signal,
+    grid.tendence.dt.list[[paste(difficulté, task_id)]] <- data.table(
+      difficulté,
+      tendence,
       task_id,
       algorithm="ideal",
       x=grid.dt$x,
@@ -50,7 +52,7 @@ for(signal in names(reg.pattern.list)){
   }
 }
 (reg.data <- rbindlist(reg.data.list))
-(grid.signal.dt <- rbindlist(grid.signal.dt.list))
+(grid.tendence.dt <- rbindlist(grid.tendence.dt.list))
 if(require(animint2)){
   ggplot()+
     geom_point(aes(
@@ -60,16 +62,18 @@ if(require(animint2)){
       x, y),
       color="red",
       size=2,
-      data=grid.signal.dt)+
-    facet_grid(signal ~ difficulty, labeller=label_both)
+      data=grid.tendence.dt)+
+    facet_grid(tendence ~ difficulté, labeller=label_both)
 }
 
-reg_size_cv <- mlr3resampling::ResamplingVariableSizeTrainCV$new()
-n.train.sizes <- 9
-reg_size_cv$param_set$values$train_sizes <- n.train.sizes
+reg_size_cv <- mlr3resampling::ResamplingSameOtherSizesCV$new()
+n.entraînement.sizes <- 8
+reg_size_cv$param_set$values$sizes <- n.entraînement.sizes
+reg_size_cv$param_set$values$ratio <- 563/1000 # 0.01^(1/8)
 reg_size_cv$param_set$values$folds <- n.folds
-reg_size_cv$param_set$values$random_seeds <- 1
 reg_size_cv$instantiate(reg.task.list[[1]])#required for consistent folds across tasks.
+u.train.groups <- unique(reg_size_cv$instance$iteration.dt$n.train.groups)
+rect.x <- log10(u.train.groups)
 
 (reg.learner.list <- list(
   if(requireNamespace("rpart"))mlr3::LearnerRegrRpart$new(),
@@ -86,44 +90,56 @@ if(require(lgr))get_logger("mlr3")$set_threshold("warn")
 (reg.bench.result <- mlr3::benchmark(
   reg.bench.grid, store_models = TRUE))
 
-## TODO why is data.table needed below? is a a bug in mlr3resampling?
+algo.info <- rowwiseDT(
+  Algorithme=, algorithm=, color=, size=,
+  "sans caractères", "featureless", "deepskyblue", 4,
+  "arbre de décision", "rpart", "red", 2,
+  "idéal", "ideal", "black", 1)
+algo.colors <- algo.info[, setNames(color, Algorithme)]
+algo.sizes <- algo.info[, setNames(size, Algorithme)]
 
 reg.bench.score <- nc::capture_first_df(
-  data.table(mlr3resampling::score(reg.bench.result)),
+  mlr3resampling::score(reg.bench.result),
   task_id=list(
-    signal=".*?",
+    tendence=".*?",
     " ",
-    difficulty=".*"))[
-, signal_difficulty_Ntrain := paste(signal,difficulty,train_size),
-][]
-train_size_vec <- unique(reg.bench.score$train_size)
+    difficulté=".*", dfac
+  )
+)[, let(
+  Nentraînement = n.train.groups,
+  tendence_difficulté_Nentraînement = paste(tendence,difficulté,n.train.groups),
+  bloc.test = test.fold
+)][algo.info, on="algorithm", nomatch=0L]
+Nentraînement_vec <- unique(reg.bench.score$Nentraînement)
 
 grid.task <- mlr3::TaskRegr$new("grid", grid.dt, target="y")
 pred.dt.list <- list()
 point.dt.list <- list()
 for(score.i in 1:nrow(reg.bench.score)){
-  reg.bench.row <- reg.bench.score[score.i]
+  reg.bench.row <- reg.bench.score[
+    score.i
+  ][, entraînement := train][]
   task.dt <- data.table(
     reg.bench.row$task[[1]]$data(),
-    reg.bench.row$resampling[[1]]$instance$id.dt)
+    reg.bench.row$resampling[[1]]$instance$fold.dt)
   set.ids <- data.table(
-    Set=c("test","train")
+    Ensemble=c("test","entraînement")
   )[
-  , data.table(row_id=reg.bench.row[[Set]][[1]])
-  , by=Set]
+  , data.table(row_id=reg.bench.row[[Ensemble]][[1]])
+  , by=Ensemble]
   i.points <- set.ids[
     task.dt, on="row_id"
   ][
-    is.na(Set), Set := "unused"
+    is.na(Ensemble), Ensemble := "ignoré"
   ]
-  point.id <- reg.bench.row[, paste(signal_difficulty_Ntrain, test.fold, algorithm)]
+  point.id <- reg.bench.row[, paste(tendence_difficulté_Nentraînement, bloc.test, Algorithme)]
   point.dt.list[[point.id]] <- data.table(
-    reg.bench.row[, .(signal_difficulty_Ntrain, test.fold, algorithm)],
+    reg.bench.row[, .(tendence_difficulté_Nentraînement, bloc.test, Algorithme)],
     i.points)
   i.learner <- reg.bench.row$learner[[1]]
   pred.dt.list[[score.i]] <- data.table(
     reg.bench.row[, .(
-      signal_difficulty_Ntrain, signal, difficulty, train_size, test.fold, algorithm
+      tendence_difficulté_Nentraînement, tendence, difficulté, Nentraînement, bloc.test, Algorithme
     )],
     as.data.table(
       i.learner$predict(grid.task)
@@ -131,279 +147,257 @@ for(score.i in 1:nrow(reg.bench.score)){
   )
 }
 (pred.dt <- rbindlist(pred.dt.list))
-(point.dt <- rbindlist(point.dt.list)[algorithm=="featureless"])
-(upred <- unique(pred.dt[, .(signal_difficulty_Ntrain, signal, difficulty, train_size)]))
-signal.dt <- upred[
-  grid.signal.dt, on=.(signal,difficulty), allow.cartesian=TRUE]
+(point.dt <- rbindlist(point.dt.list)[Algorithme=="sans caractères"])
+(upred <- unique(pred.dt[, .(tendence_difficulté_Nentraînement, tendence, difficulté, Nentraînement)]))
+tendence.dt <- upred[
+  grid.tendence.dt, on=.(tendence,difficulté), allow.cartesian=TRUE
+][
+  algo.info, on="algorithm", nomatch=0L
+]
 
-point.dt[grepl(" 10$", signal_difficulty_Ntrain) & test.fold==1 & Set=="train"][, .SD[1:2], by=.(signal_difficulty_Ntrain)]
-
-algo.colors <- c(
-  featureless="blue",
-  rpart="red",
-  ideal="black")
-algo.sizes <- c(
-  ideal=1,
-  featureless=4,
-  rpart=2)
 (reg.bench.wide <- dcast(
   reg.bench.score,
-  signal + difficulty + train_size + algorithm + signal_difficulty_Ntrain ~ .,
+  tendence + difficulté + Nentraînement + Algorithme + tendence_difficulté_Nentraînement ~ .,
   list(mean, sd, length, min, max),
   value.var=c("regr.mse")))
 reg.bench.test <- dcast(
   reg.bench.score[, log10.mse := log10(regr.mse)],
-  signal + difficulty + train_size + test.fold + signal_difficulty_Ntrain ~ algorithm,
+  tendence + difficulté + Nentraînement + bloc.test + tendence_difficulté_Nentraînement ~ algorithm,
   value.var=c("log10.mse"))
-rect.x <- seq(1,log10(max.N),l=n.train.sizes)
 seq.diff <- diff(rect.x)[1]/2
 test.proposed <- reg.bench.test[, {
   paired <- t.test(rpart, featureless, alternative="two.sided", paired=TRUE)
   unpaired <- t.test(rpart, featureless, alternative="two.sided", paired=FALSE)
   data.table(
-    mean.of.diff=paired$estimate, p.paired=paired$p.value, p.value=unpaired$p.value,
+    mean.of.diff=paired$estimate, p.value=paired$p.value, p.unpaired=unpaired$p.value,
     mean.rpart=unpaired$estimate[1], mean.featureless=unpaired$estimate[2], p.unpaired=unpaired$p.value)
-}, keyby=.(signal,difficulty,train_size,signal_difficulty_Ntrain)
+}, keyby=.(tendence,difficulté,Nentraînement,tendence_difficulté_Nentraînement)
 ][, `:=`(
   difference=ifelse(
-    is.nan(p.value) | p.value>0.05, "not significant", "significant"),
+    is.nan(p.value) | p.value>0.05, "pas significative", "significative"),
   xmin=10^(rect.x-seq.diff),
   xmax=10^(rect.x+seq.diff)
-), by=.(signal,difficulty)][]
-if(FALSE){#bug in R?
-  reg.bench.test[difficulty=="hard" & train_size==1000 & signal=="constant", t.test(featureless, rpart, paired=TRUE)]
-  reg.bench.test[difficulty=="hard" & train_size==1000 & signal=="constant", t.test(featureless, rpart, paired=FALSE)]
-  dput(data.frame(reg.bench.test[difficulty=="hard" & train_size==1000 & signal=="constant", .(err1=featureless, err2=rpart)]), control="digits17")
-  err1 = c(-1.6076199373862132, -1.658521185520103, -1.6549424312339873, -1.5887767975086149, -1.634129577540383, -1.7442711937982249)
-  err2 = c(-1.6076199373862132, -1.6585211855201032, -1.6549424312339875, -1.5887767975086149, -1.6341295775403832, -1.7442711937982252)
-  t.test(err1,err2,paired=TRUE)
-  t.test(err1,err2,paired=FALSE)
-}
-test.proposed[difficulty=="hard" & train_size==1000]
+), by=.(tendence,difficulté)][]
 reg.bench.join <- reg.bench.wide[
-  test.proposed[, .(signal_difficulty_Ntrain,signal,difficulty,train_size,difference)],
+  test.proposed[, .(tendence_difficulté_Nentraînement,tendence,difficulté,Nentraînement,difference)],
   on=.NATURAL]
 mid.x <- 10^((max(rect.x)+min(rect.x))/2)
 data.color <- "grey50"
-mse.limits <- c(0.01, 0.045)
+
+mse.limits <- c(0.01, 0.05)
 mse.breaks <- c(0.01,0.02,0.04)
 Toff <- 1.2
 Tbrk <- c(0,0.5,1)
 Tbreaks <- c(Tbrk,Tbrk+Toff)
 Tlabels <- c(Tbrk,Tbrk)
-unused.x <- 1.1
-unused.y.point <- 0.1
-unused.y.text <- 0
+ignoré.x <- 1.1
+ignoré.y.point <- 0.1
+ignoré.y.text <- 0
 Tpred <- function(DT){
-  if(! "Set" %in% names(DT)){
-    DT <- data.table(Set=c("train","test"))[, data.table(DT), by=Set]
+  if(! "Ensemble" %in% names(DT)){
+    DT <- data.table(Ensemble=c("entraînement","test"))[, data.table(DT), by=Ensemble]
   }
   data.table(DT)[
-  , x := ifelse(Set=="test",0,Toff)+x
+  , x := ifelse(Ensemble=="test",0,Toff)+x
   ][
-    Set=="unused", `:=`(x=unused.x, y=unused.y.point)
+    Ensemble=="ignoré", `:=`(x=ignoré.x, y=ignoré.y.point)
   ][]
 }
-(data.sizes <- point.dt[, .(N=.N), by=.(signal_difficulty_Ntrain, test.fold, Set)])
-
+(data.sizes <- point.dt[, .(N=.N), by=.(tendence_difficulté_Nentraînement, bloc.test, Ensemble)])
 
 viz <- animint(
-  title="Samples required to learn non-trivial regression model",
-  video="https://vimeo.com/1051473773",
+  title="Échantillons pour apprendre une fonction de régression",
   overview=ggplot()+
-    ggtitle("Select signal, difficulty, Ntrain")+
+    ggtitle("Choisir tendence, difficulté, Nentraînement")+
     theme_bw()+
     theme_animint(width=600, height=300)+
     geom_ribbon(aes(
-      train_size,
+      Nentraînement,
       ymin=regr.mse_mean-regr.mse_sd,
       ymax=regr.mse_mean+regr.mse_sd,
-      group=algorithm,
-      fill=algorithm),
-      help=paste("Mean plus or minus one standard deviation, over", n.folds, "cross-validation folds."),
+      group=Algorithme,
+      fill=Algorithme),
+      help=paste("Moyenne ± écart type sur", n.folds, "blocs dans la validation croisée"),
       color=NA,
       alpha=0.5,
       data=reg.bench.wide)+
     geom_line(aes(
-      train_size, regr.mse_mean,
-      group=algorithm),
-      help=paste("Mean over", n.folds, "cross-validation folds."),
+      Nentraînement, regr.mse_mean,
+      group=Algorithme),
+      help=paste("Moyenne sur", n.folds, "blocs dans la validation croisée"),
       color="grey",
+      showSelected="Algorithme",
       data=reg.bench.wide)+
     scale_size_manual(values=algo.sizes)+
     scale_fill_manual(values=algo.colors)+
     scale_color_manual(values=c(
-      significant="black",
-      "not significant"=NA))+
+      significative="black",
+      "pas significative"=NA))+
     geom_point(aes(
-      train_size, regr.mse_mean,
+      Nentraînement, regr.mse_mean,
       color=difference,
-      size=algorithm,
-      fill=algorithm),
-      help=paste("Mean over", n.folds, "cross-validation folds."),
+      size=Algorithme,
+      fill=Algorithme),
+      help=paste("Moyenne sur", n.folds, "blocs dans la validation croisée"),
       data=reg.bench.join)+
     geom_segment(aes(
-      train_size, 10^mean.rpart,
+      Nentraînement, 10^mean.rpart,
       key=1,
-      xend=train_size, yend=10^mean.featureless),
-      showSelected="signal_difficulty_Ntrain",
-      help="Grey segment shows difference between rpart and featureless.",
+      xend=Nentraînement, yend=10^mean.featureless),
+      showSelected="tendence_difficulté_Nentraînement",
+      help="Segment gris pour la différence entre rpart et sans caractères",
       size=3,
       alpha=0.5,
       data=test.proposed)+
     geom_text(aes(
-      train_size, 10^pmax(mean.rpart,mean.featureless)*1.1,
+      Nentraînement, 10^pmax(mean.rpart,mean.featureless)*1.1,
       key=1,
-      hjust=ifelse(train_size<mid.x, 0, 1),
+      hjust=ifelse(Nentraînement<mid.x, 0, 1),
       label=fcase(
         p.value<0.0001, "p<0.0001",
         is.nan(p.value), "Diff=0",
         default=sprintf("p=%.4f", p.value))),
-      showSelected="signal_difficulty_Ntrain",
-      help="P-value in unpaired two-sided T-test for difference between rpart and featureless.",
+      showSelected="tendence_difficulté_Nentraînement",
+      help="Probabilité critique dans un test de Student, différence entre rpart et sans caractères",
       data=test.proposed)+
     geom_rect(aes(
       xmin=xmin, xmax=xmax,
       ymin=0, ymax=Inf),
       alpha=0.1,
-      help="Grey rect shows current selection of signal, difficulty, number of train samples.",
+      help="Rectangle gris pour la sélection de tendence, difficulté, nombre d’échantillons d’entraînement",
       fill="black",
       color=NA,
-      clickSelects="signal_difficulty_Ntrain",
+      clickSelects="tendence_difficulté_Nentraînement",
       data=test.proposed)+
     scale_y_log10(
-      "Mean Squared Error (log scale)",
+      "Erreur carrée moyenne",
       limits=mse.limits,
       breaks=mse.breaks
     )+
     scale_x_log10(
-      "Ntrain = Number of samples in train set (log scale)")+
-    facet_grid(signal ~ difficulty),
+      "Nentraînement = Nombre d’échantillons d’entraînement")+
+    facet_grid(tendence ~ difficulté),
   scatter=ggplot()+
-    ggtitle("MSE for selected")+
+    ggtitle("Erreur carrée pour la séléction")+
     theme_bw()+
     theme_animint(width=300, height=300, last_in_row=TRUE)+
     theme(legend.position="none")+
     coord_equal(xlim=mse.limits, ylim=mse.limits)+
     scale_x_log10(
-      "featureless (log scale)",
+      "sans caractères",
       breaks=mse.breaks)+
     scale_y_log10(
-      "rpart (log scale)",
+      "arbre de décision",
       breaks=mse.breaks)+
     geom_abline(aes(
       slope=slope, intercept=intercept),
-      help="Diagonal line represents equal prediction error for rpart and featureless.",
+      help="Ligne diagonale pour l’égalité des taux d’erreur",
       color="grey50",
       data=data.table(slope=1, intercept=0))+
     geom_segment(aes(
-      x, y, xend=xend, yend=yend, color=algorithm),
+      x, y, xend=xend, yend=yend, color=Algorithme),
       data=rbind(
-        data.table(x=0, y=0, xend=0, yend=Inf, algorithm="rpart"),
-        data.table(x=0, y=0, xend=Inf, yend=0, algorithm="featureless")),
-      help="Segments show colors corresponding to each algorithm: blue=rpart and red=featureless.",
+        data.table(x=0, y=0, xend=0, yend=Inf, Algorithme="arbre de décision"),
+        data.table(x=0, y=0, xend=Inf, yend=0, Algorithme="sans caractères")),
+      help="Segments pour les couleurs de chaque Algorithme",
       alpha=0.5,
-      showSelected="algorithm",
+      showSelected="Algorithme",
       size=5)+
     scale_color_manual(values=algo.colors)+
     geom_point(aes(
       10^featureless, 10^rpart,
-      key=test.fold,
+      key=bloc.test,
       tooltip=sprintf(
-        "fold %d featureless=%.3f rpart=%.3f", test.fold, featureless, rpart)),
-      showSelected="signal_difficulty_Ntrain",
-      help="One dot for each cross-validation fold.",
-      clickSelects="test.fold",
+        "fold %d featureless=%.3f rpart=%.3f", bloc.test, featureless, rpart)),
+      showSelected="tendence_difficulté_Nentraînement",
+      help="Un cercle pour chaque bloc dans la validation croisée",
+      clickSelects="bloc.test",
       size=5,
       alpha=0.7,
       data=reg.bench.test),
   details=ggplot()+
-    ggtitle("MSE for selected")+
+    ggtitle("Erreur pour la sélection")+
     theme_bw()+
-    theme_animint(width=1000, height=130, colspan=2, last_in_row=TRUE)+
+    theme_animint(width=1000, height=150, colspan=2, last_in_row=TRUE)+
     theme(legend.position="none")+
     scale_y_discrete("Algo")+
     scale_x_log10(
-      "Mean Squared Error (log scale)",
+      "Erreur carrée moyenne",
       limits=mse.limits,
       breaks=mse.breaks)+
     scale_color_manual(values=algo.colors)+
     geom_point(aes(
-      regr.mse, algorithm,
-      key=paste0(algorithm, test.fold),
-      color=algorithm,
+      regr.mse, Algorithme,
+      key=paste0(Algorithme, bloc.test),
+      color=Algorithme,
       tooltip=sprintf(
-        "%s fold %d MSE=%.3f", algorithm, test.fold, regr.mse)),
-      showSelected=c("algorithm","signal_difficulty_Ntrain"),
-      help="One dot for each cross-validation fold and algorithm.",
-      clickSelects="test.fold",
+        "%s bloc %d MSE=%.3f", Algorithme, bloc.test, regr.mse)),
+      showSelected=c("Algorithme","tendence_difficulté_Nentraînement"),
+      help="Un cercle pour chaque division et Algorithmee",
+      clickSelects="bloc.test",
       alpha=0.7,
       size=5,
       data=reg.bench.score),
   pred=ggplot()+
-    ggtitle("Predictions for selected train/test split")+
+    ggtitle("Prédictions pour la division choisie")+
     theme_bw()+
     theme_animint(height=300, width=900, colspan=2)+
     geom_point(aes(
       x, y,
       key=row_id),
-      showSelected=c("signal_difficulty_Ntrain","test.fold"),
+      showSelected=c("tendence_difficulté_Nentraînement","bloc.test"),
       size=3,
-      help="One dot for each sample in test set (left) and train set (right).",
+      help="Un cercle pour chaque échantillon test (gauche) et entraînement (droite).",
       fill="white",
       color=data.color,
       data=Tpred(point.dt))+
     scale_x_continuous(
-      "x = feature/input",
+      "x = entrée",
       labels=Tlabels,
       breaks=Tbreaks)+
-    scale_y_continuous("y = label/output")+
+    scale_y_continuous("y = sortie")+
     geom_line(aes(
       x, y,
-      key=Set,
-      group=Set,
-      color=algorithm,
-      size=algorithm),
-      help="Black curve shows ideal prediction function, used to generate data.",
-      showSelected=c("signal_difficulty_Ntrain"),
-      data=Tpred(signal.dt))+
+      key=Ensemble,
+      group=Ensemble,
+      color=Algorithme,
+      size=Algorithme),
+      help="Courbe noir pour la fonction de prédiction idéale, utilisée pour la création de ces données",
+      showSelected=c("tendence_difficulté_Nentraînement"),
+      data=Tpred(tendence.dt))+
     geom_line(aes(
       x, y,
-      key=paste(algorithm,Set),
-      color=algorithm,
-      size=algorithm,
-      group=paste(algorithm,Set)),
-      help="Blue and red curves show learned prediction functions.",
-      showSelected=c("signal_difficulty_Ntrain","test.fold"),
+      key=paste(Algorithme,Ensemble),
+      color=Algorithme,
+      size=Algorithme,
+      group=paste(Algorithme,Ensemble)),
+      help="Courbes en bleue et rouge pour les fonctions de prédiction",
+      showSelected=c("tendence_difficulté_Nentraînement","bloc.test"),
       data=Tpred(pred.dt))+
     geom_text(aes(
-      x, ifelse(Set=="unused", unused.y.text, 0.98),
-      hjust=ifelse(Set=="unused", 0.5, 0),
-      key=Set,
-      label=paste0(Set," set N=",N)),
+      x, ifelse(Ensemble=="ignoré", ignoré.y.text, 0.98),
+      hjust=ifelse(Ensemble=="ignoré", 0.5, 0),
+      key=Ensemble,
+      label=sprintf("N=%d données %s", N, Ensemble)),
       data=Tpred(data.sizes[, x := 0]),
-      help="Text shows number of samples in each set.",
+      help="Texte pour nombre d’échantillons dans chaque ensemble",
       color=data.color,
-      showSelected="signal_difficulty_Ntrain")+
+      showSelected="tendence_difficulté_Nentraînement")+
     scale_size_manual(values=algo.sizes)+
     scale_color_manual(values=algo.colors),
   out.dir="cv-noise-samples",
-  source="https://github.com/tdhock/2024-08-ift603-712/blob/main/cv-noise-samples.R",
+  source="https://github.com/tdhock/2026-08-apprentissage/blob/main/cv-noise-samples.R",
   duration=list(
-    test.fold=1000,
-    signal_difficulty_Ntrain=1000),
+    bloc.test=1000,
+    tendence_difficulté_Nentraînement=1000),
   first=list(
-    signal_difficulty_Ntrain="sin easy 1000")
+    tendence_difficulté_Nentraînement="sin facile 1000")
 )
-
-if(FALSE){
-  animint2pages(viz, "2024-09-15-K-fold-CV-train-sizes-regression")
-  animint2pages(viz, "2024-09-16-K-fold-CV-train-sizes-regression")
-  animint2pages(viz, "2026-02-17-K-fold-CV-train-sizes-regression")
-}
 viz
 
 if(FALSE){
-  animint2pages(viz, "2024-09-16-K-fold-CV-train-sizes-regression", chromote_sleep_seconds = 5)
+  animint2pages(viz, "2026-09-16--chantillons-pour-r-gression", chromote_sleep_seconds = 5)
 }
+
+
 
