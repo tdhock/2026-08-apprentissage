@@ -21,29 +21,29 @@ standard.deviation.vec <- c(
 dfac <- function(x)factor(x, names(standard.deviation.vec))
 reg.task.list <- list()
 reg.data.list <- list()
-grid.tendence.dt.list <- list()
-for(tendence in names(reg.pattern.list)){
-  f <- reg.pattern.list[[tendence]]
+grid.tendance.dt.list <- list()
+for(tendance in names(reg.pattern.list)){
+  f <- reg.pattern.list[[tendance]]
   for(difficulté.chr in names(standard.deviation.vec)){
     standard.deviation <- standard.deviation.vec[[difficulté.chr]]
     difficulté <- dfac(difficulté.chr)
-    task_id <- paste(tendence, difficulté)
-    tendence.vec <- f(x.vec)
-    y <- tendence.vec+rnorm(N,sd=standard.deviation)
+    task_id <- paste(tendance, difficulté)
+    tendance.vec <- f(x.vec)
+    y <- tendance.vec+rnorm(N,sd=standard.deviation)
     task.dt <- data.table(
       x=norm01(x.vec,grid.dt$raw),
       y = norm01(y))
     reg.data.list[[paste(difficulté, task_id)]] <- data.table(
       difficulté,
-      tendence,
+      tendance,
       task_id,
       task.dt)
     reg.task.list[[paste(difficulté, task_id)]] <- mlr3::TaskRegr$new(
       task_id, task.dt, target="y"
     )
-    grid.tendence.dt.list[[paste(difficulté, task_id)]] <- data.table(
+    grid.tendance.dt.list[[paste(difficulté, task_id)]] <- data.table(
       difficulté,
-      tendence,
+      tendance,
       task_id,
       algorithm="ideal",
       x=grid.dt$x,
@@ -52,7 +52,7 @@ for(tendence in names(reg.pattern.list)){
   }
 }
 (reg.data <- rbindlist(reg.data.list))
-(grid.tendence.dt <- rbindlist(grid.tendence.dt.list))
+(grid.tendance.dt <- rbindlist(grid.tendance.dt.list))
 if(require(animint2)){
   ggplot()+
     geom_point(aes(
@@ -62,8 +62,8 @@ if(require(animint2)){
       x, y),
       color="red",
       size=2,
-      data=grid.tendence.dt)+
-    facet_grid(tendence ~ difficulté, labeller=label_both)
+      data=grid.tendance.dt)+
+    facet_grid(tendance ~ difficulté, labeller=label_both)
 }
 
 reg_size_cv <- mlr3resampling::ResamplingSameOtherSizesCV$new()
@@ -101,13 +101,13 @@ algo.sizes <- algo.info[, setNames(size, Algorithme)]
 reg.bench.score <- nc::capture_first_df(
   mlr3resampling::score(reg.bench.result),
   task_id=list(
-    tendence=".*?",
+    tendance=".*?",
     " ",
     difficulté=".*", dfac
   )
 )[, let(
   Nentraînement = n.train.groups,
-  tendence_difficulté_Nentraînement = paste(tendence,difficulté,n.train.groups),
+  tendance_difficulté_Nentraînement = paste(tendance,difficulté,n.train.groups),
   bloc.test = test.fold
 )][algo.info, on="algorithm", nomatch=0L]
 Nentraînement_vec <- unique(reg.bench.score$Nentraînement)
@@ -132,14 +132,14 @@ for(score.i in 1:nrow(reg.bench.score)){
   ][
     is.na(Ensemble), Ensemble := "ignoré"
   ]
-  point.id <- reg.bench.row[, paste(tendence_difficulté_Nentraînement, bloc.test, Algorithme)]
+  point.id <- reg.bench.row[, paste(tendance_difficulté_Nentraînement, bloc.test, Algorithme)]
   point.dt.list[[point.id]] <- data.table(
-    reg.bench.row[, .(tendence_difficulté_Nentraînement, bloc.test, Algorithme)],
+    reg.bench.row[, .(tendance_difficulté_Nentraînement, bloc.test, Algorithme)],
     i.points)
   i.learner <- reg.bench.row$learner[[1]]
   pred.dt.list[[score.i]] <- data.table(
     reg.bench.row[, .(
-      tendence_difficulté_Nentraînement, tendence, difficulté, Nentraînement, bloc.test, Algorithme
+      tendance_difficulté_Nentraînement, tendance, difficulté, Nentraînement, bloc.test, Algorithme
     )],
     as.data.table(
       i.learner$predict(grid.task)
@@ -148,21 +148,21 @@ for(score.i in 1:nrow(reg.bench.score)){
 }
 (pred.dt <- rbindlist(pred.dt.list))
 (point.dt <- rbindlist(point.dt.list)[Algorithme=="sans caractères"])
-(upred <- unique(pred.dt[, .(tendence_difficulté_Nentraînement, tendence, difficulté, Nentraînement)]))
-tendence.dt <- upred[
-  grid.tendence.dt, on=.(tendence,difficulté), allow.cartesian=TRUE
+(upred <- unique(pred.dt[, .(tendance_difficulté_Nentraînement, tendance, difficulté, Nentraînement)]))
+tendance.dt <- upred[
+  grid.tendance.dt, on=.(tendance,difficulté), allow.cartesian=TRUE
 ][
   algo.info, on="algorithm", nomatch=0L
 ]
 
 (reg.bench.wide <- dcast(
   reg.bench.score,
-  tendence + difficulté + Nentraînement + Algorithme + tendence_difficulté_Nentraînement ~ .,
+  tendance + difficulté + Nentraînement + Algorithme + tendance_difficulté_Nentraînement ~ .,
   list(mean, sd, length, min, max),
   value.var=c("regr.mse")))
 reg.bench.test <- dcast(
   reg.bench.score[, log10.mse := log10(regr.mse)],
-  tendence + difficulté + Nentraînement + bloc.test + tendence_difficulté_Nentraînement ~ algorithm,
+  tendance + difficulté + Nentraînement + bloc.test + tendance_difficulté_Nentraînement ~ algorithm,
   value.var=c("log10.mse"))
 seq.diff <- diff(rect.x)[1]/2
 test.proposed <- reg.bench.test[, {
@@ -171,15 +171,15 @@ test.proposed <- reg.bench.test[, {
   data.table(
     mean.of.diff=paired$estimate, p.value=paired$p.value, p.unpaired=unpaired$p.value,
     mean.rpart=unpaired$estimate[1], mean.featureless=unpaired$estimate[2], p.unpaired=unpaired$p.value)
-}, keyby=.(tendence,difficulté,Nentraînement,tendence_difficulté_Nentraînement)
+}, keyby=.(tendance,difficulté,Nentraînement,tendance_difficulté_Nentraînement)
 ][, `:=`(
   difference=ifelse(
     is.nan(p.value) | p.value>0.05, "pas significative", "significative"),
   xmin=10^(rect.x-seq.diff),
   xmax=10^(rect.x+seq.diff)
-), by=.(tendence,difficulté)][]
+), by=.(tendance,difficulté)][]
 reg.bench.join <- reg.bench.wide[
-  test.proposed[, .(tendence_difficulté_Nentraînement,tendence,difficulté,Nentraînement,difference)],
+  test.proposed[, .(tendance_difficulté_Nentraînement,tendance,difficulté,Nentraînement,difference)],
   on=.NATURAL]
 mid.x <- 10^((max(rect.x)+min(rect.x))/2)
 data.color <- "grey50"
@@ -203,12 +203,17 @@ Tpred <- function(DT){
     Ensemble=="ignoré", `:=`(x=ignoré.x, y=ignoré.y.point)
   ][]
 }
-(data.sizes <- point.dt[, .(N=.N), by=.(tendence_difficulté_Nentraînement, bloc.test, Ensemble)])
+(data.sizes <- point.dt[, .(N=.N), by=.(tendance_difficulté_Nentraînement, bloc.test, Ensemble)])
 
+pred.lines <- Tpred(pred.dt)[
+, group := .GRP
+, by=.(Algorithme,Ensemble)
+][]
+unique(pred.lines[, .(Algorithme, Ensemble, group)])
 viz <- animint(
   title="Échantillons pour apprendre une fonction de régression",
   overview=ggplot()+
-    ggtitle("Choisir tendence, difficulté, Nentraînement")+
+    ggtitle("Choisir tendance, difficulté, Nentraînement")+
     theme_bw()+
     theme_animint(width=600, height=300)+
     geom_ribbon(aes(
@@ -244,7 +249,7 @@ viz <- animint(
       Nentraînement, 10^mean.rpart,
       key=1,
       xend=Nentraînement, yend=10^mean.featureless),
-      showSelected="tendence_difficulté_Nentraînement",
+      showSelected="tendance_difficulté_Nentraînement",
       help="Segment gris pour la différence entre rpart et sans caractères",
       size=3,
       alpha=0.5,
@@ -257,17 +262,17 @@ viz <- animint(
         p.value<0.0001, "p<0.0001",
         is.nan(p.value), "Diff=0",
         default=sprintf("p=%.4f", p.value))),
-      showSelected="tendence_difficulté_Nentraînement",
+      showSelected="tendance_difficulté_Nentraînement",
       help="Probabilité critique dans un test de Student, différence entre rpart et sans caractères",
       data=test.proposed)+
     geom_rect(aes(
       xmin=xmin, xmax=xmax,
       ymin=0, ymax=Inf),
       alpha=0.1,
-      help="Rectangle gris pour la sélection de tendence, difficulté, nombre d’échantillons d’entraînement",
+      help="Rectangle gris pour la sélection de tendance, difficulté, nombre d’échantillons d’entraînement",
       fill="black",
       color=NA,
-      clickSelects="tendence_difficulté_Nentraînement",
+      clickSelects="tendance_difficulté_Nentraînement",
       data=test.proposed)+
     scale_y_log10(
       "Erreur carrée moyenne",
@@ -276,7 +281,7 @@ viz <- animint(
     )+
     scale_x_log10(
       "Nentraînement = Nombre d’échantillons d’entraînement")+
-    facet_grid(tendence ~ difficulté),
+    facet_grid(tendance ~ difficulté),
   scatter=ggplot()+
     ggtitle("Erreur carrée pour la séléction")+
     theme_bw()+
@@ -309,7 +314,7 @@ viz <- animint(
       key=bloc.test,
       tooltip=sprintf(
         "fold %d featureless=%.3f rpart=%.3f", bloc.test, featureless, rpart)),
-      showSelected="tendence_difficulté_Nentraînement",
+      showSelected="tendance_difficulté_Nentraînement",
       help="Un cercle pour chaque bloc dans la validation croisée",
       clickSelects="bloc.test",
       size=5,
@@ -332,7 +337,7 @@ viz <- animint(
       color=Algorithme,
       tooltip=sprintf(
         "%s bloc %d MSE=%.3f", Algorithme, bloc.test, regr.mse)),
-      showSelected=c("Algorithme","tendence_difficulté_Nentraînement"),
+      showSelected=c("Algorithme","tendance_difficulté_Nentraînement"),
       help="Un cercle pour chaque division et Algorithmee",
       clickSelects="bloc.test",
       alpha=0.7,
@@ -345,7 +350,7 @@ viz <- animint(
     geom_point(aes(
       x, y,
       key=row_id),
-      showSelected=c("tendence_difficulté_Nentraînement","bloc.test"),
+      showSelected=c("tendance_difficulté_Nentraînement","bloc.test"),
       size=3,
       help="Un cercle pour chaque échantillon test (gauche) et entraînement (droite).",
       fill="white",
@@ -363,17 +368,17 @@ viz <- animint(
       color=Algorithme,
       size=Algorithme),
       help="Courbe noir pour la fonction de prédiction idéale, utilisée pour la création de ces données",
-      showSelected=c("tendence_difficulté_Nentraînement"),
-      data=Tpred(tendence.dt))+
+      showSelected=c("tendance_difficulté_Nentraînement"),
+      data=Tpred(tendance.dt))+
     geom_line(aes(
       x, y,
       key=paste(Algorithme,Ensemble),
       color=Algorithme,
       size=Algorithme,
-      group=paste(Algorithme,Ensemble)),
+      group=group),
       help="Courbes en bleue et rouge pour les fonctions de prédiction",
-      showSelected=c("tendence_difficulté_Nentraînement","bloc.test"),
-      data=Tpred(pred.dt))+
+      showSelected=c("tendance_difficulté_Nentraînement","bloc.test"),
+      data=pred.lines)+
     geom_text(aes(
       x, ifelse(Ensemble=="ignoré", ignoré.y.text, 0.98),
       hjust=ifelse(Ensemble=="ignoré", 0.5, 0),
@@ -382,22 +387,20 @@ viz <- animint(
       data=Tpred(data.sizes[, x := 0]),
       help="Texte pour nombre d’échantillons dans chaque ensemble",
       color=data.color,
-      showSelected="tendence_difficulté_Nentraînement")+
+      showSelected="tendance_difficulté_Nentraînement")+
     scale_size_manual(values=algo.sizes)+
     scale_color_manual(values=algo.colors),
   out.dir="cv-noise-samples",
   source="https://github.com/tdhock/2026-08-apprentissage/blob/main/cv-noise-samples.R",
   duration=list(
     bloc.test=1000,
-    tendence_difficulté_Nentraînement=1000),
+    tendance_difficulté_Nentraînement=1000),
   first=list(
-    tendence_difficulté_Nentraînement="sin facile 1000")
+    tendance_difficulté_Nentraînement="sin facile 1000")
 )
 viz
 
 if(FALSE){
   animint2pages(viz, "2026-09-16--chantillons-pour-r-gression", chromote_sleep_seconds = 5)
 }
-
-
 

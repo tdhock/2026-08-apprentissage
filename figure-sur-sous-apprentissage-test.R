@@ -3,8 +3,8 @@ library(data.table)
 max.x <- 5
 min.x <- -max.x
 lfun <- function(expr)eval(substitute(list(function(x)expr)))
-tendence.dt <- rowwiseDT(
-  tendence=, fonction=, graine=,
+tendance.dt <- rowwiseDT(
+  tendance=, fonction=, graine=,
   "constante", lfun(1), 6,
   "cubique", lfun(x^3/(max.x^3)), 9,#1?
   "quadratique", lfun(x^2/(max.x^2)), 11,#6?
@@ -20,10 +20,10 @@ subtrain <- "sous-entraînement"
 model.dt.list <- list()
 lm.name <- "degré de base polynome, modèle linéaire"
 nn.name <- "nombre de plus proches voisins"
-for(tendence.i in 1:nrow(tendence.dt)){
-  tendence.row <- tendence.dt[tendence.i]
-  set.seed(tendence.row$graine)
-  f <- tendence.row$fonction[[1]]
+for(tendance.i in 1:nrow(tendance.dt)){
+  tendance.row <- tendance.dt[tendance.i]
+  set.seed(tendance.row$graine)
+  f <- tendance.row$fonction[[1]]
   y <- f(x) + rnorm(N.total, sd=0.1)
   for(test.fold in fold.uniq){
     ensemble <- ifelse(test.fold==fold.vec, "test", "entraînement")
@@ -52,9 +52,9 @@ for(tendence.i in 1:nrow(tendence.dt)){
         predict(model.fit, all.sets)
       }
       model.dt.list[[paste(
-        tendence.i, test.fold, degree, "lm"
+        tendance.i, test.fold, degree, "lm"
       )]] <- data.table(
-        tendence.row,
+        tendance.row,
         test.fold,
         all.sets,
         pred.y,
@@ -69,9 +69,9 @@ for(tendence.i in 1:nrow(tendence.dt)){
         subtrain.set$ynorm,
         nombre.voisins)
       model.dt.list[[paste(
-        tendence.i, test.fold, nombre.voisins, "nn"
+        tendance.i, test.fold, nombre.voisins, "nn"
       )]] <- data.table(
-        tendence.row,
+        tendance.row,
         test.fold,
         all.sets,
         pred.y=kfit[["pred"]],
@@ -86,19 +86,19 @@ model.dt <- do.call(rbind, model.dt.list)
 (error.dt <- model.dt[
   ensemble != "grid", .(
     RMSE=sqrt(mean((ynorm - pred.y)^2))
-  ), by=.(tendence, regularisation, test.fold, paramètre, ensemble)
+  ), by=.(tendance, regularisation, test.fold, paramètre, ensemble)
 ][
 , RMSE.thresh := ifelse(RMSE<1e-10, 0, RMSE)
 ][])
 (min.valid.err <- error.dt[ensemble=="validation"][
 , .SD[which.min(RMSE)]
-, by=.(tendence, regularisation, test.fold)])
+, by=.(tendance, regularisation, test.fold)])
 pfac <- function(x)factor(x, c("sans caractères", "meilleur sur validation", sprintf("fixe(%s)", unique(error.dt$paramètre))))
 test.err <- error.dt[ensemble=="test"][
 , param := pfac(sprintf("fixe(%d)", paramètre))
 ][]
 best.err <- test.err[
-  min.valid.err[, .(tendence, regularisation, test.fold, paramètre)],
+  min.valid.err[, .(tendance, regularisation, test.fold, paramètre)],
   on=.NATURAL
 ][
 , param := pfac("meilleur sur validation")
@@ -116,7 +116,7 @@ ggplot()+
   geom_point(aes(
     RMSE, param),
     data=all.test.err)+
-  facet_grid(regularisation ~ tendence, scales="free", space="free")
+  facet_grid(regularisation ~ tendance, scales="free", space="free")
 
 yord <- c(
   "sans caractères",
@@ -145,16 +145,16 @@ ggplot()+
   geom_point(aes(
     RMSE, Paramètre),
     data=show.err)+
-  facet_grid(modèle ~ tendence, scales="free", space="free")
+  facet_grid(modèle ~ tendance, scales="free", space="free")
 
 show.err.wide <- dcast(
   show.err,
-  modèle + tendence + Paramètre + paramètre + regularisation ~ .,
+  modèle + tendance + Paramètre + paramètre + regularisation ~ .,
   list(mean, sd, length),
   value.var="RMSE")
 show.err.compare <- show.err[Paramètre == "sélection"][
   show.err[Paramètre != "sélection", .(
-    tendence, regularisation, test.fold, compare_RMSE=RMSE, compare_param=Paramètre
+    tendance, regularisation, test.fold, compare_RMSE=RMSE, compare_param=Paramètre
   )], on=.NATURAL, allow.cartesian=TRUE]
 show.err.p <- show.err.compare[, {
   L <- t.test(RMSE, compare_RMSE, paired=TRUE)
@@ -163,7 +163,7 @@ show.err.p <- show.err.compare[, {
     RMSE=mean(RMSE),
     compare_RMSE=mean(compare_RMSE),
     p=L$p.value)
-}, by=.(tendence, modèle, paramètre, regularisation, param, compare_param)]
+}, by=.(tendance, modèle, paramètre, regularisation, param, compare_param)]
 
 viz <- animint(
   test=ggplot()+
@@ -205,16 +205,19 @@ viz <- animint(
       data=show.err.wide[Paramètre!="sélection"])+
     scale_y_discrete(drop=FALSE)+
     scale_x_continuous(breaks=seq(0, 1, by=0.1))+
-    facet_grid(modèle ~ tendence, scales="free", space="free"),
+    facet_grid(modèle ~ tendance, scales="free", space="free"),
   selectize=list()
 )
 for(reg in unique(show.err.p$regularisation)){
   viz$selectize[[reg]] <- TRUE
 }
-viz
-##TODO
+viz##TODO debug??
   
-best.err <- error.dt[ensemble=="validation"][, .SD[mse==min(mse)], by=.(tendence, regularisation)]
+best.err <- error.dt[
+  ensemble=="validation"
+][
+, .SD[RMSE==min(RMSE)]
+, by=.(tendance, regularisation)]
 (set.colors <- rowwiseDT(
   ensemble=, color=,
   subtrain, "black",
@@ -238,14 +241,14 @@ text.dt <- rowwiseDT(
   lm.name, max.degree, 0,
   nn.name, 1, 1
 )[test.err, on=.(regularisation, paramètre), nomatch=0L]
-duration.list <- list(tendence=1000)
+duration.list <- list(tendance=1000)
 for(regularisation in names(model.colors)){
   duration.list[[regularisation]] <- 1000
 }
 height.pixels <- 700
 (viz <- animint(
   error=ggplot()+
-    ggtitle("Choisir tendence et paramètres")+
+    ggtitle("Choisir tendance et paramètres")+
     theme(legend.position="none")+
     theme_animint(height=height.pixels, width=500)+
     scale_y_continuous("log10(erreur carrée moyenne)")+
@@ -266,31 +269,30 @@ height.pixels <- 700
       showSelected="regularisation",
       clickSelects=c(regularisation="paramètre"))+
     geom_line(aes(
-      paramètre, log10(mse.thresh), color=ensemble, group=paste(tendence, ensemble)),
-      clickSelects="tendence",
+      paramètre, log10(RMSE.thresh), color=ensemble, group=paste(tendance, ensemble)),
+      clickSelects="tendance",
       showSelected=c("regularisation", "ensemble"),
       size=5,
       alpha_off=0.1,
       data=error.dt)+
     geom_point(aes(
-      paramètre, log10(mse.thresh), color=ensemble),
-      shape=1,
+      paramètre, log10(RMSE.thresh), color=ensemble),
       fill="white",
       alpha_off=0.1,
       size=4,
-      clickSelects="tendence",
+      clickSelects="tendance",
       showSelected=c("regularisation", "ensemble"),
       data=best.err)+
     geom_text(aes(
-      (0.5-hjust)*0.5+paramètre, log10(mse.thresh),
+      (0.5-hjust)*0.5+paramètre, log10(RMSE.thresh),
       hjust=hjust,
-      label=tendence,
+      label=tendance,
       color=ensemble),
-      clickSelects="tendence",
+      clickSelects="tendance",
       showSelected=c("regularisation", "ensemble"),
       data=text.dt),
   fonctions=ggplot()+
-    ggtitle("Tendence (points) et modèles (courbes) pour la sélection")+
+    ggtitle("Tendance (points) et modèles (courbes) pour la sélection")+
     xlab("entrée x")+
     ylab("sortie y")+
     theme_animint(height=height.pixels, width=600, last_in_row=TRUE)+
@@ -300,7 +302,7 @@ height.pixels <- 700
     geom_point(aes(
       x, ynorm, fill=ensemble, key=x),
       size=4,
-      showSelected=c("ensemble","tendence"),
+      showSelected=c("ensemble","tendance"),
       data=not.grid)+
     geom_line(aes(
       x, pred.thresh,
@@ -309,12 +311,13 @@ height.pixels <- 700
       group=regularisation,
       color=regularisation),
       data=model.dt[ensemble=="grid"],
-      showSelected=c("tendence", regularisation="paramètre")),
+      showSelected=c("tendance", regularisation="paramètre")),
   duration=duration.list,
   out.dir="figure-sur-sous-apprentissage-test",
   title="Surapprentissage et sous-apprentissage avec modèle linéaire et plus proches voisins",
   first=setNames(list(10), nn.name),
   source="https://github.com/tdhock/2026-08-apprentissage/blob/master/figure-sur-sous-apprentissage-test.R"))
 if(FALSE){
+  ## not published, does not work yet
   animint2pages(viz, "2026-09-02-sur-sous-apprentissage-test", chromote_sleep_seconds=3)
 }

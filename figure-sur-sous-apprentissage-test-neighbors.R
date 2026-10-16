@@ -3,13 +3,13 @@ library(data.table)
 max.x <- 5
 min.x <- -max.x
 lfun <- function(expr)eval(substitute(list(function(x)expr)))
-tendence.dt <- rowwiseDT(
-  tendence=, fonction=, graine=,
+tendance.dt <- rowwiseDT(
+  tendance=, fonction=, graine=,
   "constante", lfun(1), 6,
   "linéaire", lfun(x/max.x), 14,
   "quadratique", lfun(x^2/(max.x^2)), 11,#6?
   "cubique", lfun(x^3/(max.x^3)), 9
-)[, tendence := factor(tendence, tendence)]#1?
+)[, tendance := factor(tendance, tendance)]#1?
 grid.x.vec <- seq(min.x, max.x, l=401)
 set.seed(1)#4?
 N.total <- 100
@@ -21,10 +21,10 @@ subtrain <- "sous-entraînement"
 model.dt.list <- list()
 lm.name <- "degré de base polynome, modèle linéaire"
 nn.name <- "nombre de plus proches voisins"
-for(tendence.i in 1:nrow(tendence.dt)){
-  tendence.row <- tendence.dt[tendence.i]
-  set.seed(tendence.row$graine)
-  f <- tendence.row$fonction[[1]]
+for(tendance.i in 1:nrow(tendance.dt)){
+  tendance.row <- tendance.dt[tendance.i]
+  set.seed(tendance.row$graine)
+  f <- tendance.row$fonction[[1]]
   y <- f(x) + rnorm(N.total, sd=0.1)
   for(test.bloc in bloc.uniq){
     ensemble <- ifelse(test.bloc==bloc.vec, "test", "entraînement")
@@ -49,9 +49,9 @@ for(tendence.i in 1:nrow(tendence.dt)){
         subtrain.set$ynorm,
         nombre.voisins)
       model.dt.list[[paste(
-        tendence.i, test.bloc, nombre.voisins, "nn"
+        tendance.i, test.bloc, nombre.voisins, "nn"
       )]] <- data.table(
-        tendence.row,
+        tendance.row,
         test.bloc,
         all.sets,
         pred.y=kfit[["pred"]],
@@ -61,25 +61,25 @@ for(tendence.i in 1:nrow(tendence.dt)){
   }
 }
 model.dt <- do.call(rbind, model.dt.list)[
-, tendence.bloc := sprintf("%s.%d", tendence, test.bloc)
+, tendance.bloc := sprintf("%s.%d", tendance, test.bloc)
 ][]
 
 (error.dt <- model.dt[
   ensemble != "grid", .(
     RMSE=sqrt(mean((ynorm - pred.y)^2))
-  ), by=.(tendence, test.bloc, tendence.bloc, voisins, ensemble)
+  ), by=.(tendance, test.bloc, tendance.bloc, voisins, ensemble)
 ][
 , RMSE.thresh := ifelse(RMSE<1e-10, 0, RMSE)
 ][])
 (min.valid.err <- error.dt[ensemble=="validation"][
 , .SD[which.min(RMSE)]
-, by=.(tendence, test.bloc, tendence.bloc)])
+, by=.(tendance, test.bloc, tendance.bloc)])
 pfac <- function(x)factor(x, c("max (sans caractères)", "meilleur sur validation", sprintf("fixe(%s)", unique(error.dt$voisins))))
 test.err <- error.dt[ensemble=="test"][
 , param := pfac(sprintf("fixe(%d)", voisins))
 ][]
 best.err <- test.err[
-  min.valid.err[, .(tendence, test.bloc, tendence.bloc, voisins)],
+  min.valid.err[, .(tendance, test.bloc, tendance.bloc, voisins)],
   on=.NATURAL
 ][
 , param := pfac("meilleur sur validation")
@@ -101,7 +101,7 @@ ggplot()+
   geom_point(aes(
     RMSE, param),
     data=all.test.err)+
-  facet_grid(. ~ tendence, scales="free", space="free")
+  facet_grid(. ~ tendance, scales="free", space="free")
 
 yord <- c(
   "max (sans caractères)",
@@ -125,17 +125,17 @@ ggplot()+
   geom_point(aes(
     RMSE, Voisins),
     data=show.err)+
-  facet_grid(. ~ tendence, scales="free", space="free")
+  facet_grid(. ~ tendance, scales="free", space="free")
 
 show.err.wide <- dcast(
   show.err[Voisins=="meilleur sur validation", voisins := NA],
-  tendence + Voisins + voisins ~ .,
+  tendance + Voisins + voisins ~ .,
   list(mean, sd, length),
   value.var="RMSE"
 )[, erreur := moyenne.SD]
 show.err.compare <- show.err[Voisins == "sélection"][
   show.err[Voisins != "sélection", .(
-    tendence, test.bloc, tendence.bloc, compare_RMSE=RMSE, compare_param=Voisins
+    tendance, test.bloc, tendance.bloc, compare_RMSE=RMSE, compare_param=Voisins
   )], on=.NATURAL, allow.cartesian=TRUE]
 show.err.p <- show.err.compare[, {
   L <- t.test(RMSE, compare_RMSE, paired=TRUE)
@@ -146,12 +146,12 @@ show.err.p <- show.err.compare[, {
     RMSE=mean(RMSE),
     compare_RMSE=mean(compare_RMSE),
     p)
-}, by=.(tendence, voisins, param, compare_param)]
+}, by=.(tendance, voisins, param, compare_param)]
 
 text.color <- "black"
 text.size <- 12
 data.color <- "red"
-best.err <- error.dt[ensemble=="validation"][, .SD[RMSE==min(RMSE)], by=tendence.bloc]
+best.err <- error.dt[ensemble=="validation"][, .SD[RMSE==min(RMSE)], by=tendance.bloc]
 (set.colors <- rowwiseDT(
   ensemble=, color=,
   subtrain, "black", #subtrain without quotes!
@@ -166,14 +166,14 @@ model.dt[, pred.thresh := ifelse(
 tallrect.dt <- unique(error.dt[, .(voisins)])
 #test.err <- error.dt[ensemble=="validation"]
 height.pixels <- 500
-tf.dt <- unique(model.dt[, .(tendence, test.bloc, tendence.bloc)])
+tf.dt <- unique(model.dt[, .(tendance, test.bloc, tendance.bloc)])
 viz <- animint(
   title="Valeurs-p pour l’erreur sur test, plus proches voisins, régression",
   duration=list(
-    tendence.bloc=1000,
+    tendance.bloc=1000,
     voisins=1000),
   test=ggplot()+
-    ggtitle("Erreur sur l’ensemble test, choisir tendence dans les données, et bloc de VC")+
+    ggtitle("Erreur sur l’ensemble test, choisir tendance dans les données, et bloc de VC")+
     theme_animint(
       width=1000, height=250,
       colspan=2, last_in_row=TRUE)+
@@ -254,7 +254,7 @@ viz <- animint(
       color=erreur,
       key=test.bloc),
       showSelected="voisins",
-      clickSelects="tendence.bloc",
+      clickSelects="tendance.bloc",
       fill_off="transparent",
       alpha=0.5,
       alpha_off=0.5,
@@ -266,7 +266,7 @@ viz <- animint(
       size=erreur,
       color=erreur,
       key=paste(Voisins, test.bloc)),
-      clickSelects="tendence.bloc",
+      clickSelects="tendance.bloc",
       fill_off="transparent",
       alpha=0.5,
       alpha_off=0.5,
@@ -277,7 +277,7 @@ viz <- animint(
     scale_x_continuous(
       "Racine de l’erreur carrée moyenne (test)",
       breaks=seq(0, 1, by=0.1))+
-    facet_grid(. ~ tendence, scales="free", space="free", labeller=label_both),
+    facet_grid(. ~ tendance, scales="free", space="free", labeller=label_both),
   error=ggplot()+
     ggtitle("Choisir nombre de voisins")+
     theme(legend.position="none")+
@@ -286,10 +286,10 @@ viz <- animint(
       20, 0.4,
       key=1,
       label=sprintf(
-        "tendence=%s, bloc=%d",
-        tendence, test.bloc)),
-      showSelected="tendence.bloc",
-      help="Texte pour la sélection de tendence et bloc",
+        "tendance=%s, bloc=%d",
+        tendance, test.bloc)),
+      showSelected="tendance.bloc",
+      help="Texte pour la sélection de tendance et bloc",
       data=tf.dt)+
     scale_y_continuous("Racine de l’erreur carrée moyenne (sous-ent. ou validation)")+
     scale_x_continuous(
@@ -301,7 +301,7 @@ viz <- animint(
       color=ensemble,
       group=ensemble,
       key=ensemble),
-      showSelected=c("tendence.bloc", "ensemble"),
+      showSelected=c("tendance.bloc", "ensemble"),
       size=5,
       help="Courbes pour l’erreur sur sous-entraînement et validation",
       data=error.dt[ensemble != "test"])+
@@ -311,7 +311,7 @@ viz <- animint(
       key=ensemble),
       fill="white",
       size=4,
-      showSelected=c("tendence.bloc", "ensemble"),
+      showSelected=c("tendance.bloc", "ensemble"),
       help="Point pour la meilleure erreur sur validation",
       data=best.err)+
     geom_tallrect(aes(
@@ -323,7 +323,7 @@ viz <- animint(
       help="Rectange pour la sélection du nombre de voisins",
       clickSelects="voisins"),
   fonctions=ggplot()+
-    ggtitle("Tendence (points) et modèle (courbe) pour la sélection")+
+    ggtitle("Tendance (points) et modèle (courbe) pour la sélection")+
     theme_animint(height=height.pixels, width=700)+
     xlab("entrée x")+
     ylab("sortie y")+
@@ -331,16 +331,16 @@ viz <- animint(
       0, 1.05,
       key=1,
       label=sprintf(
-        "tendence=%s, bloc=%d",
-        tendence, test.bloc)),
-      showSelected="tendence.bloc",
-      help="Texte pour la sélection de tendence et bloc",
+        "tendance=%s, bloc=%d",
+        tendance, test.bloc)),
+      showSelected="tendance.bloc",
+      help="Texte pour la sélection de tendance et bloc",
       data=tf.dt)+
     scale_fill_manual(values=set.colors)+
     geom_point(aes(
       x, ynorm, fill=ensemble, key=row.i),
       size=4,
-      showSelected=c("ensemble","tendence.bloc"),
+      showSelected=c("ensemble","tendance.bloc"),
       help="Points pour les données",
       data=not.grid)+
     geom_line(aes(
@@ -348,7 +348,7 @@ viz <- animint(
       key=1),
       data=model.dt[ensemble=="grid"],
       help="Courbe noir pour la fonction de prédiction pour la sélection du nombre de voisins",
-      showSelected=c("tendence.bloc", "voisins")),
+      showSelected=c("tendance.bloc", "voisins")),
   out.dir="figure-sur-sous-apprentissage-test-neighbors",
   source="https://github.com/tdhock/2026-08-apprentissage/blob/master/figure-sur-sous-apprentissage-test-neighbors.R"
 )

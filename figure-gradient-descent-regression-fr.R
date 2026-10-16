@@ -21,37 +21,37 @@ weight.dt.list <- list()
 erreur.dt.list <- list()
 overview.dt.list <- list()
 pred.dt.list <- list()
-for(tendence in names(true.f.list)){
-  true.f <- true.f.list[[tendence]]
+for(tendance in names(true.f.list)){
+  true.f <- true.f.list[[tendance]]
   set.seed(1)
   y <- true.f(x) + rnorm(N, 0, 2)
   expr <- sub("[1] ", "", capture.output(print(body(true.f))), fixed=TRUE)
-  tendence_expr <- sprintf("%s y = %s", tendence, expr)
+  tendance_expr <- sprintf("%s y = %s", tendance, expr)
   erreur.fun <- function(ordonnée, pente){
     mean((0.5*(x*pente + ordonnée - y))^2)
   }
   grid.dt[, erreur := erreur.fun(ordonnée, pente), by=.(pente, ordonnée)]
-  ##overview.dt.list[[tendence]] <- data.table()
+  ##overview.dt.list[[tendance]] <- data.table()
   ## grad desc
   feature.mat <- cbind(1, x)
   for(taux in 10^seq(-3, 0)){
-    sim.dt.list[[paste(tendence, taux)]] <- data.table(
-      tendence, taux, tendence_expr, x, y)
-    erreur.dt.list[[paste(tendence, taux)]] <- data.table(
-      tendence, taux, grid.dt)
+    sim.dt.list[[paste(tendance, taux)]] <- data.table(
+      tendance, taux, tendance_expr, x, y)
+    erreur.dt.list[[paste(tendance, taux)]] <- data.table(
+      tendance, taux, grid.dt)
     weight.vec <- c(ordonnée=0,pente=0)
     for(itération in 0:40){
       pred.vec <- as.numeric(feature.mat %*% weight.vec)
       resid.vec <- pred.vec-y
-      pred.dt.list[[paste(tendence, taux, itération)]] <- data.table(
-        tendence, taux, itération,
+      pred.dt.list[[paste(tendance, taux, itération)]] <- data.table(
+        tendance, taux, itération,
         x, y, prediction=pred.vec, residual=resid.vec)
       grad.vec <- colMeans(resid.vec * feature.mat)
       dir.vec <- -grad.vec * taux
       names(dir.vec) <- names(weight.vec)
       after.weight <- weight.vec + dir.vec
-      weight.dt.list[[paste(tendence, taux, itération)]] <- data.table(
-        tendence, taux, itération, t(weight.vec),
+      weight.dt.list[[paste(tendance, taux, itération)]] <- data.table(
+        tendance, taux, itération, t(weight.vec),
         orig=t(weight.vec),
         dir=t(dir.vec),
         after=t(after.weight),
@@ -62,14 +62,14 @@ for(tendence in names(true.f.list)){
 }
 sim.dt <- do.call(rbind, sim.dt.list)
 ggplot()+
-  facet_grid(. ~ tendence_expr)+
+  facet_grid(. ~ tendance_expr)+
   geom_point(aes(
     x, y),
     data=sim.dt)
 
 erreur.dt <- do.call(rbind, erreur.dt.list)
-erreur.dt[, erreur.relative := (erreur-min(erreur))/(max(erreur)-min(erreur)), by=tendence]
-erreur.dt[, .(min.erreur=min(erreur)), by=tendence]
+erreur.dt[, erreur.relative := (erreur-min(erreur))/(max(erreur)-min(erreur)), by=tendance]
+erreur.dt[, .(min.erreur=min(erreur)), by=tendance]
 weight.dt <- do.call(rbind, weight.dt.list)
 for(axis.name in names(weight.vec)){
   for(dir.or.not in c("", "after.")){
@@ -89,7 +89,7 @@ for(axis.name in names(weight.vec)){
   }
 }
 ggplot()+
-  facet_grid(taux ~ tendence)+
+  facet_grid(taux ~ tendance)+
   geom_tile(aes(
     pente, ordonnée, fill=erreur.relative),
     data=erreur.dt)+
@@ -105,22 +105,22 @@ ggplot()+
 
 some.erreur <- erreur.dt[, .(
   max.erreur=max(erreur)
-), by=tendence
+), by=tendance
 ][
-  weight.dt, on="tendence"
+  weight.dt, on="tendance"
 ][
   erreur<max.erreur
 ]
 some.erreur <- weight.dt[, .(
   max.erreur=erreur[1]
-), by=tendence
+), by=tendance
 ][
-  weight.dt, on="tendence"
+  weight.dt, on="tendance"
 ][
   erreur > max.erreur*1.5, erreur := Inf
 ]
 ggplot()+
-  facet_grid(tendence ~ taux, scales="free_y")+
+  facet_grid(tendance ~ taux, scales="free_y")+
   geom_line(aes(
     itération, erreur),
     size=2,
@@ -136,7 +136,7 @@ taux.colors <- c(
   "0.001"="#C6DBEF")
 some.erreur[, taux := factor(taux)]
 ggplot()+
-  facet_grid(tendence ~ ., scales="free_y")+
+  facet_grid(tendance ~ ., scales="free_y")+
   geom_line(aes(
     itération, erreur, group=taux, color=taux),
     size=2,
@@ -148,7 +148,7 @@ ggplot()+
 weight.dt[, taux := factor(taux)]
 ggplot()+
   scale_color_manual(values=taux.colors, breaks=names(taux.colors))+
-  facet_grid(. ~ tendence)+
+  facet_grid(. ~ tendance)+
   geom_tile(aes(
     pente, ordonnée, fill=erreur.relative),
     data=erreur.dt)+
@@ -164,11 +164,11 @@ ggplot()+
     data=weight.dt)
 
 pred.dt <- do.call(rbind, pred.dt.list)
-some.erreur[, tendence.taux := paste(tendence, taux)]
-erreur.dt[, tendence.taux := paste(tendence, taux)]
-weight.dt[, tendence.taux := paste(tendence, taux)]
-sim.dt[, tendence.taux := paste(tendence, taux)]
-pred.dt[, tendence.taux := paste(tendence, taux)]
+some.erreur[, tendance.taux := paste(tendance, taux)]
+erreur.dt[, tendance.taux := paste(tendance, taux)]
+weight.dt[, tendance.taux := paste(tendance, taux)]
+sim.dt[, tendance.taux := paste(tendance, taux)]
+pred.dt[, tendance.taux := paste(tendance, taux)]
 pred.dt[, inf.pred := ifelse(
   prediction>max(y), Inf, ifelse(
     prediction<min(y), -Inf, prediction))]
@@ -182,7 +182,7 @@ viz <- animint(
     geom_point(aes(
       x, y, key=x),
       data=sim.dt,
-      showSelected="tendence.taux")+
+      showSelected="tendance.taux")+
     scale_x_continuous(
       "entrée x")+
     scale_y_continuous(
@@ -193,31 +193,31 @@ viz <- animint(
       color=ligne,
       xend=x, yend=inf.pred),
       data=data.table(pred.dt, ligne="erreur"),
-      chunk_vars="tendence.taux",
+      chunk_vars="tendance.taux",
       size=1,
-      showSelected=c("tendence.taux", "itération"))+
+      showSelected=c("tendance.taux", "itération"))+
     geom_line(aes(
       x, inf.pred, key=1, color=ligne),
-      chunk_vars="tendence.taux",
+      chunk_vars="tendance.taux",
       data=data.table(pred.dt, ligne="prédiction"),
-      showSelected=c("tendence.taux","itération")),
+      showSelected=c("tendance.taux","itération")),
   erreurIterations=ggplot()+
     ggtitle("Erreur, choisir itération/données/taux")+
     theme_bw()+
     theme_animint(width=400, height=500)+
-    facet_grid(tendence ~ ., scales="free_y")+
+    facet_grid(tendance ~ ., scales="free_y")+
     make_tallrect(some.erreur, "itération")+
     geom_line(aes(
       itération, erreur, group=taux, color=taux),
       size=4,
-      clickSelects="tendence.taux",
+      clickSelects="tendance.taux",
       data=some.erreur)+
     geom_point(aes(
       itération, erreur, key=1),
       color="black",
       fill="white",
       size=5,
-      showSelected=c("tendence.taux", "itération"),
+      showSelected=c("tendance.taux", "itération"),
       data=some.erreur)+
     scale_color_manual(values=taux.colors, breaks=names(taux.colors)),
   erreurGrid=ggplot()+
@@ -229,20 +229,20 @@ viz <- animint(
       fill=erreur.relative,
       color=erreur.relative,
       key=paste(pente, ordonnée)),
-      showSelected="tendence.taux",
+      showSelected="tendance.taux",
       data=erreur.dt)+
     scale_fill_gradient(low="white", high="red")+
     scale_color_gradient(low="white", high="red")+
     geom_point(aes(
       pente, ordonnée, key=itération),
-      showSelected="tendence.taux",
+      showSelected="tendance.taux",
       clickSelects="itération",
       size=5,
       alpha=0.55,
       data=weight.dt)+
     geom_point(aes(
       pente, ordonnée, key=1),
-      showSelected=c("tendence.taux", "itération"),
+      showSelected=c("tendance.taux", "itération"),
       fill="white",
       color="black",
       size=5,
@@ -251,22 +251,22 @@ viz <- animint(
       pente, ordonnée,
       key=1,
       xend=after.pente, yend=after.ordonnée),
-      showSelected=c("tendence.taux", "itération"),
+      showSelected=c("tendance.taux", "itération"),
       color="deepskyblue",
       data=weight.dt)+
     geom_point(aes(
       after.pente, after.ordonnée,
       key=1),
-      showSelected=c("tendence.taux", "itération"),
+      showSelected=c("tendance.taux", "itération"),
       color="deepskyblue",
       data=weight.dt),
   first=list(
-    tendence.taux="lin.haut 0.1"),
+    tendance.taux="lin.haut 0.1"),
   time=list(
     variable="itération",
     ms=500),
   duration=list(
-    tendence.taux=500,
+    tendance.taux=500,
     itération=500),
   out.dir="figure-gradient-descent-regression-fr")
 viz

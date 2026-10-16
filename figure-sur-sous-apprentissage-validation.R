@@ -10,15 +10,15 @@ max.x <- 3
 input.vec <- runif(N, min.x, max.x)
 library(data.table)
 subtrain <- "sous-entraînement"
-in.out.dt <- data.table(tendence=names(fun.list))[, {
-  f <- fun.list[[tendence]]
+in.out.dt <- data.table(tendance=names(fun.list))[, {
+  f <- fun.list[[tendance]]
   true.vec <- f(input.vec)
   list(
     input=input.vec,
     true=true.vec,
     output=true.vec+rnorm(N),
     ensemble=rep(c(subtrain, "validation"),l=length(input.vec)))
-}, by=list(tendence)]
+}, by=list(tendance)]
 
 voisins.dt <- data.table(voisins=1:(N/2))
 pred.dt <- voisins.dt[, {
@@ -32,7 +32,7 @@ pred.dt <- voisins.dt[, {
       output,
       pred=predict(fit, input),
       ensemble)
-  }, by=list(tendence)]
+  }, by=list(tendance)]
 }, by=list(voisins)]
 
 grid.dt <- voisins.dt[, {
@@ -41,12 +41,12 @@ grid.dt <- voisins.dt[, {
     in.mat <- cbind(input[is.subtrain])
     fit <- caret::knnreg(in.mat, output[is.subtrain], k=voisins)
     x <- seq(min.x, max.x, l=200)
-    f <- fun.list[[tendence]]
+    f <- fun.list[[tendance]]
     data.table(
       input=x,
-      truth=f(x),
-      prediction=predict(fit, x))
-  }, by=list(tendence)]
+      idéal=f(x),
+      prédiction=predict(fit, x))
+  }, by=list(tendance)]
 }, by=list(voisins)]
 
 library(animint2)
@@ -55,14 +55,12 @@ rss.dt <- pred.dt[, {
   rss <- sum(res.vec*res.vec)
   mse <- rss/length(res.vec)
   data.table(RMSE=sqrt(mse))
-  }, by=list(voisins, tendence, ensemble)]
+  }, by=list(voisins, tendance, ensemble)]
 min.dt <- rss.dt[
-  ensemble=="validation",
-  .SD[which.min(RMSE)],
-  by=tendence]
-rss.dt[ensemble=="validation" & tendence=="constante"]
+, .SD[which.min(RMSE)]
+, by=.(ensemble, tendance)]
 ggplot()+
-  facet_grid(. ~ tendence)+
+  facet_grid(. ~ tendance)+
   geom_line(aes(
     voisins, RMSE, color=ensemble),
     data=rss.dt)+
@@ -73,18 +71,19 @@ ggplot()+
     data=min.dt)+
   scale_x_continuous()
 
-pred.dt[, fonction := "prediction"]
+pred.colors <- c(prédiction="red", idéal="blue")
+pred.dt[, fonction := "prédiction"]
 grid.tall <- melt(
   grid.dt,
-  measure.vars=c("prediction", "truth"),
+  measure.vars=names(pred.colors),
   variable.name="fonction")
-in.out.dt[, fonction := "truth"]
+in.out.dt[, fonction := "idéal"]
 ensemble.colors <- rowwiseDT(
   ensemble=, color=,
   subtrain, "grey50",#NOT QUOTED
   "validation", "black"
 )[, setNames(color, ensemble)]
-pred.colors <- c(prediction="red", truth="blue")
+
 (viz <- animint(
   title="Sous-entraînement et validation pour régression avec plus proches voisins",
   funs=ggplot()+
@@ -94,7 +93,7 @@ pred.colors <- c(prediction="red", truth="blue")
     scale_fill_manual(values=ensemble.colors)+
     scale_color_manual(values=pred.colors)+
     theme(panel.margin=grid::unit(0, "lines"))+
-    facet_grid(ensemble ~ tendence)+
+    facet_grid(ensemble ~ tendance)+
     ylab("y = sortie")+
     xlab("x = entrée")+
     geom_point(aes(
@@ -103,41 +102,40 @@ pred.colors <- c(prediction="red", truth="blue")
       data=in.out.dt)+
     geom_line(aes(
       input, value, color=fonction),
-      data=grid.tall[fonction=="truth" & voisins==1])+
+      data=grid.tall[fonction=="idéal" & voisins==1])+
     geom_line(aes(
       input, value,
       key="pred",
       color=fonction),
       showSelected="voisins",
-      data=grid.tall[fonction=="prediction"]),
+      data=grid.tall[fonction=="prédiction"]),
   select=ggplot()+
-    ggtitle("Erreurs sur sous-entraîniment et validation, choisir nombre de voisins")+
+    ggtitle("Erreurs sur sous-entraînement et validation, choisir nombre de voisins")+
     theme_bw()+
     theme_animint(width=1000, height=300)+
-    facet_grid(. ~ tendence)+
+    facet_grid(. ~ tendance)+
     geom_line(aes(
       voisins, RMSE, color=ensemble, group=ensemble),
       data=rss.dt)+
     geom_point(aes(
-      voisins, RMSE, color=ensemble),
-      fill="white",
-      data=min.dt)+
+      voisins, RMSE, color=ensemble, fill=erreur),
+      data=data.table(erreur="min", min.dt))+    
     geom_text(aes(
       N/2, 0.3,
       key="voisins",
       label=sprintf(
         "%d plus proche%s voisin%s",
         voisins, s, s)),
-      showSelected="voisins",
-      color=pred.colors[["prediction"]],
+      showSelected=c("fonction","voisins"),
+      color=pred.colors[["prédiction"]],
       hjust=1,
-      data=voisins.dt[, s := ifelse(voisins==1, "", "s")])+
+      data=data.table(fonction="prédiction", voisins.dt)[, s := ifelse(voisins==1, "", "s")])+
     geom_text(aes(
       N/2, ifelse(ensemble==subtrain, 0.15, 0),
       color=ensemble,
       key=ensemble,
       label=sprintf(
-        "Erreur sur %s : %.4f", ensemble, RMSE)),
+        "Erreur %s : %.4f", ensemble, RMSE)),
       showSelected="voisins",
       hjust=1,
       data=rss.dt)+
@@ -151,6 +149,7 @@ pred.colors <- c(prediction="red", truth="blue")
     scale_x_continuous(
       breaks=c(1, seq(10, 50, by=10)))+
     coord_cartesian(ylim=c(0,2))+
+    scale_fill_manual(values=c(min="white"))+
     scale_color_manual(values=ensemble.colors),
   out.dir="figure-sur-sous-apprentissage-validation",
   duration=list(voisins=1000),
